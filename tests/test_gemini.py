@@ -131,6 +131,24 @@ def test_ask_vision_success():
 
 
 @respx.mock
+def test_ask_vision_detects_mime_from_bytes():
+    respx.post(API_URL).respond(200, json=_candidate_body('["Ana"]'))
+
+    cases = [
+        (b"\xff\xd8\xff\xe0fake-jpeg", "image/jpeg"),
+        (b"RIFF\x10\x00\x00\x00WEBPfake", "image/webp"),
+        (b"\x89PNG\r\n\x1a\nfake-png", "image/png"),
+        (b"mystery-bytes", "image/png"),  # unknown ⇒ default
+    ]
+    for image, expected_mime in cases:
+        ask_vision(image, "labels from this image")
+        payload = json.loads(respx.calls.last.request.content)
+        parts = payload["contents"][0]["parts"]
+        image_part = next(part for part in parts if "inline_data" in part)
+        assert image_part["inline_data"]["mime_type"] == expected_mime, expected_mime
+
+
+@respx.mock
 def test_missing_api_key_raises(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY")
     respx.post(API_URL).respond(200, json=_candidate_body('{"action":"spin"}'))
