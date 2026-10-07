@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wheelio</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/wheel.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <h1>Wheelio</h1>
+    </header>
+
+    <main class="panes">
+      <section class="pane pane-chat">
+        <h2 class="pane-title">Chat</h2>
+        <div id="chat-log" class="chat-log"></div>
+      </section>
+
+      <section class="pane pane-wheel">
+        <div id="banner" class="banner"></div>
+        <div id="wheel-pane">
+          <canvas id="wheel" width="480" height="480"></canvas>
+          <div id="wheel-data" data-entries="[]"></div>
+          <p class="empty-hint">type a list or upload an image</p>
+        </div>
+        <form id="go-form" class="go-form">
+          <button type="submit" class="go-button" disabled>Go</button>
+          <label class="remove-picked-label">
+            <input type="checkbox" id="remove-picked" name="remove_picked" value="true">
+            Remove picked from wheel
+          </label>
+        </form>
+      </section>
+
+      <section class="pane pane-picked">
+        <h2 class="pane-title">Picked</h2>
+        <ol id="picked-list" class="picked-list"></ol>
+      </section>
+    </main>
+
+    <footer class="chat-bar">
+      <form id="chat-form" class="chat-form"
+            hx-post="/chat"
+            hx-encoding="multipart/form-data"
+            enctype="multipart/form-data">
+        <input type="hidden" name="token" value="">
+        <label class="attach-button" title="Attach images">
+          <span aria-hidden="true">&#128206;</span>
+          <input type="file" name="files" multiple accept="image/png,image/jpeg,image/webp">
+        </label>
+        <input type="text" name="message" class="chat-input"
+               placeholder="type a message…" autocomplete="off">
+        <button type="submit" class="send-button" title="Send">&#10148;</button>
+      </form>
+    </footer>
+  </div>
+</body>
+</html>
