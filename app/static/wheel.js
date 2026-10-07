@@ -16,8 +16,8 @@
   var TURNS = 5;        // extra full turns per spin
   var DURATION = 3500;  // ms: ≈5 full turns + settle
 
-  var canvas = document.getElementById("wheel");
-  var ctx = canvas && canvas.getContext("2d");
+  var canvas = null;
+  var ctx = null;
   var entries = [];
   var rotation = 0;     // radians; 0 = segment 0's leading edge at 12 o'clock
   var spinToken = 0;
@@ -31,6 +31,10 @@
   }
 
   function draw() {
+    // Every OOB #wheel-pane swap replaces the node: re-acquire it per draw,
+    // or we'd render into a detached canvas after the first swap.
+    canvas = document.getElementById("wheel");
+    ctx = canvas && canvas.getContext("2d");
     if (!ctx) return;
     var w = canvas.width;
     var h = canvas.height;

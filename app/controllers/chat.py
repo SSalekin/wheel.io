@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 
 from app.controllers import bubble, get_session_or_bubble, render_partial
 from app.models import Entry
+from app.services import wheel_ops
 from app.services.intent_router import interpret
 
 router = APIRouter()
@@ -39,19 +40,10 @@ def chat(
         session.picked = []
         session.source_table = None
 
-        wheel_data = [
-            {
-                "label": entry.label,
-                "image_url": (
-                    f"/media/{session.token}/{entry.image_ref}"
-                    if entry.image_ref
-                    else None
-                ),
-            }
-            for entry in session.entries
-        ]
         html = bubble(request, "user", message)
-        html += render_partial(request, "partials/wheel_pane.html", {"wheel_data": wheel_data})
+        html += render_partial(
+            request, "partials/wheel_pane.html", {"wheel_data": wheel_ops.wheel_data(session)}
+        )
         html += render_partial(
             request, "partials/picked_list.html", {"picked": session.picked}
         )

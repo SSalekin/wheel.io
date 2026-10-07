@@ -11,20 +11,6 @@ router = APIRouter()
 EMPTY_WHEEL = "The wheel is empty — add some entries first."
 
 
-def _wheel_data(session) -> list[dict]:
-    return [
-        {
-            "label": entry.label,
-            "image_url": (
-                f"/media/{session.token}/{entry.image_ref}"
-                if entry.image_ref
-                else None
-            ),
-        }
-        for entry in session.entries
-    ]
-
-
 def _empty_wheel_response(request: Request, session) -> HTMLResponse:
     """Friendly bubble (lands in #banner) plus the regions that can drift:
     Go stays disabled, the picked sidebar stays in sync."""
@@ -64,7 +50,7 @@ def spin(request: Request, token: str = Form(...)):
         request,
         "partials/wheel_pane.html",
         {
-            "wheel_data": _wheel_data(session),
+            "wheel_data": wheel_ops.wheel_data(session),
             "animate": True,
             "pre_index": pre_spin_index,
         },
