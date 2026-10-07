@@ -45,9 +45,11 @@
     <footer class="chat-bar">
       <form id="chat-form" class="chat-form"
             hx-post="/chat"
+            hx-target="#chat-log"
+            hx-swap="beforeend"
             hx-encoding="multipart/form-data"
             enctype="multipart/form-data">
-        <input type="hidden" name="token" value="">
+        <input type="hidden" name="token" value="{{ session.token }}">
         <label class="attach-button" title="Attach images">
           <span aria-hidden="true">&#128206;</span>
           <input type="file" name="files" multiple accept="image/png,image/jpeg,image/webp">
