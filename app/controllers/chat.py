@@ -26,7 +26,9 @@ def chat(
         # no session created.
         return stale_bubble
 
-    intent, _warnings = interpret(message, len(files), session)
+    intent, warnings = interpret(message, len(files), session)
+    # Degradation notes ride along after the main bubble (Task 7 ruling).
+    warning_html = "".join(bubble(request, "system", text) for text in warnings)
 
     if intent.action == "create_text":
         # wheel_ops-inline: replace entries (drop empties, dedup), clear
@@ -41,6 +43,7 @@ def chat(
         session.source_table = None
 
         html = bubble(request, "user", message)
+        html += warning_html
         html += render_partial(
             request, "partials/wheel_pane.html", {"wheel_data": wheel_ops.wheel_data(session)}
         )
@@ -59,8 +62,8 @@ def chat(
         return HTMLResponse(html)
 
     if intent.action == "clarify":
-        return HTMLResponse(bubble(request, "system", intent.question or ""))
+        return HTMLResponse(bubble(request, "system", intent.question or "") + warning_html)
 
     # Follow-up/image actions get their dispatch branches in Tasks 10/12/13;
     # until then the message is echoed without changing state.
-    return HTMLResponse(bubble(request, "user", message))
+    return HTMLResponse(bubble(request, "user", message) + warning_html)

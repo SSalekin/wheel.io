@@ -1,9 +1,19 @@
 import re
 
+import pytest
+
 from app.main import app
 
 SESSION_EXPIRED = "Session expired — refresh the page to start over."
 CLARIFY_DEFAULT = "Could you send me a list or an image to put on the wheel?"
+DEGRADED_WARNING = "⚠️ AI unreachable — best-guess parsing."
+
+
+@pytest.fixture(autouse=True)
+def _no_gemini_key(monkeypatch):
+    """Escalation (Task 7) must degrade locally in tests — never hit the
+    real Gemini API, whatever the machine's environment carries."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
 
 def _page_token(client) -> str:
@@ -62,3 +72,31 @@ def test_page_load_mints_token(client):
     assert first
     assert second
     assert first != second
+
+
+def test_degraded_warning_renders_as_system_bubble(client):
+    """Carried ruling: interpret()'s warnings must be visible in chat."""
+    token = _page_token(client)
+
+    response = client.post(
+        "/chat", data={"token": token, "message": "please pick students for me"}
+    )
+
+    assert response.status_code == 200
+    assert CLARIFY_DEFAULT in response.text
+    warning_bubble = f'<div class="bubble system">{DEGRADED_WARNING}</div>'
+    assert warning_bubble in response.text
+
+
+def test_degraded_warning_renders_on_create_text(client):
+    """Degradation can still produce create_text — the note rides along."""
+    token = _page_token(client)
+
+    response = client.post("/chat", data={"token": token, "message": "Ana, Bob"})
+
+    assert response.status_code == 200
+    assert "hx-swap-oob" in response.text
+    warning_bubble = f'<div class="bubble system">{DEGRADED_WARNING}</div>'
+    assert warning_bubble in response.text
+    session = app.state.store.get(token)
+    assert [entry.label for entry in session.entries] == ["Ana", "Bob"]
