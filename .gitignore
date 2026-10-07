@@ -1,0 +1,14 @@
+# Process docs — specs, plans, checklists (kept out of the repo)
+docs/superpowers/
+
+# Project notes
+todo.md
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
