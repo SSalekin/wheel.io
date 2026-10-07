@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.controllers import chat, wheel
+from app.controllers import chat, spin, toggle, wheel
 from app.state.store import InMemoryStateStore
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -24,3 +24,5 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 app.include_router(wheel.router)
 app.include_router(chat.router)
+app.include_router(spin.router)
+app.include_router(toggle.router)

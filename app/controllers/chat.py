@@ -5,22 +5,11 @@ from uuid import uuid4
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 
+from app.controllers import bubble, get_session_or_bubble, render_partial
 from app.models import Entry
 from app.services.intent_router import interpret
 
 router = APIRouter()
-
-SESSION_EXPIRED = "Session expired — refresh the page to start over."
-
-
-def _render(request: Request, template: str, context: dict) -> str:
-    """Render one HTML fragment through the app's shared templates instance."""
-    response = request.app.state.templates.TemplateResponse(request, template, context)
-    return response.body.decode()
-
-
-def _bubble(request: Request, role: str, text: str) -> str:
-    return _render(request, "partials/chat_bubble.html", {"role": role, "text": text})
 
 
 @router.post("/chat", response_class=HTMLResponse)
@@ -30,11 +19,11 @@ def chat(
     message: str = Form(""),
     files: list[UploadFile] = File(default=[]),
 ):
-    session = request.app.state.store.get(token)
+    session, stale_bubble = get_session_or_bubble(request, token)
     if session is None:
         # Stale/unknown token (refresh race): friendly bubble, HTTP 200,
-        # no session created. Task 5 extracts this guard into a helper.
-        return HTMLResponse(_bubble(request, "system", SESSION_EXPIRED))
+        # no session created.
+        return stale_bubble
 
     intent, _warnings = interpret(message, len(files), session)
 
@@ -61,21 +50,25 @@ def chat(
             }
             for entry in session.entries
         ]
-        html = _bubble(request, "user", message)
-        html += _render(request, "partials/wheel_pane.html", {"wheel_data": wheel_data})
-        html += _render(
+        html = bubble(request, "user", message)
+        html += render_partial(request, "partials/wheel_pane.html", {"wheel_data": wheel_data})
+        html += render_partial(
             request, "partials/picked_list.html", {"picked": session.picked}
         )
-        html += _render(
+        html += render_partial(
             request,
             "partials/go_form.html",
-            {"entries": session.entries, "remove_picked": session.remove_picked},
+            {
+                "session": session,
+                "entries": session.entries,
+                "remove_picked": session.remove_picked,
+            },
         )
         return HTMLResponse(html)
 
     if intent.action == "clarify":
-        return HTMLResponse(_bubble(request, "system", intent.question or ""))
+        return HTMLResponse(bubble(request, "system", intent.question or ""))
 
     # Follow-up/image actions get their dispatch branches in Tasks 10/12/13;
     # until then the message is echoed without changing state.
-    return HTMLResponse(_bubble(request, "user", message))
+    return HTMLResponse(bubble(request, "user", message))

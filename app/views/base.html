@@ -22,23 +22,17 @@
 
       <section class="pane pane-wheel">
         <div id="banner" class="banner"></div>
-        <div id="wheel-pane">
-          <canvas id="wheel" width="480" height="480"></canvas>
-          <div id="wheel-data" data-entries="[]"></div>
-          <p class="empty-hint">type a list or upload an image</p>
-        </div>
-        <form id="go-form" class="go-form">
-          <button type="submit" class="go-button" disabled>Go</button>
-          <label class="remove-picked-label">
-            <input type="checkbox" id="remove-picked" name="remove_picked" value="true">
-            Remove picked from wheel
-          </label>
-        </form>
+        {% set wheel_data = [] %}
+        {% include "partials/wheel_pane.html" %}
+        {% set entries = session.entries %}
+        {% set remove_picked = session.remove_picked %}
+        {% include "partials/go_form.html" %}
       </section>
 
       <section class="pane pane-picked">
         <h2 class="pane-title">Picked</h2>
-        <ol id="picked-list" class="picked-list"></ol>
+        {% set picked = [] %}
+        {% include "partials/picked_list.html" %}
       </section>
     </main>
 

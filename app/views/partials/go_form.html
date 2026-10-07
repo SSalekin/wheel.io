@@ -1,7 +1,8 @@
 <form id="go-form" class="go-form" hx-swap-oob="true">
-  <button type="submit" class="go-button"{% if not entries %} disabled{% endif %}>Go</button>
+  <input type="hidden" name="token" value="{{ session.token }}">
+  <button type="submit" class="go-button"{% if not entries %} disabled{% endif %} hx-post="/spin" hx-target="#banner">Go</button>
   <label class="remove-picked-label">
-    <input type="checkbox" id="remove-picked" name="remove_picked" value="true"{% if remove_picked %} checked{% endif %}>
+    <input type="checkbox" id="remove-picked" name="remove_picked" value="true" hx-post="/toggle" hx-swap="none"{% if remove_picked %} checked{% endif %}>
     Remove picked from wheel
   </label>
 </form>
