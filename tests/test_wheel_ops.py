@@ -1,6 +1,6 @@
 import random
 
-from app.models import Entry, WheelSession
+from app.models import Entry, Table, TableColumn, WheelSession
 from app.services import wheel_ops
 
 
@@ -65,3 +65,110 @@ def test_wheel_data_carries_image_url():
         {"label": "Ana", "image_url": "/media/token/crop1"},
         {"label": "Bob", "image_url": None},
     ]
+
+
+def _table() -> Table:
+    return Table(
+        columns=[
+            TableColumn(header="name", values=["Ana", "Bob"]),
+            TableColumn(header="id", values=["A1", "B2"]),
+        ],
+        confidence=95.0,
+    )
+
+
+def test_remove_first_exact_duplicate_warns():
+    # Review Focus #5: duplicates ⇒ remove ONE and say so, byte-exact copy.
+    session = _session(["Bob", "Bob", "Ana"])
+
+    removed, warning = wheel_ops.remove_label(session, "Bob")
+
+    assert removed is not None
+    assert removed.label == "Bob"
+    assert [entry.label for entry in session.entries] == ["Bob", "Ana"]
+    assert warning == '1 more "Bob" still on the wheel.'
+
+
+def test_remove_never_removes_both():
+    session = _session(["Bob", "Bob", "Ana"])
+
+    wheel_ops.remove_label(session, "Bob")
+
+    assert len(session.entries) == 2
+    assert sum(1 for entry in session.entries if entry.label == "Bob") == 1
+
+
+def test_remove_unique_substring():
+    session = _session(["Bob Smith", "Ana"])
+
+    removed, warning = wheel_ops.remove_label(session, "bob")
+
+    assert removed is not None
+    assert removed.label == "Bob Smith"
+    assert warning is None
+    assert [entry.label for entry in session.entries] == ["Ana"]
+
+
+def test_remove_missing():
+    session = _session(["Ana", "Bob"])
+
+    removed, warning = wheel_ops.remove_label(session, "Zed")
+
+    assert removed is None
+    assert warning == 'Couldn\'t find "Zed" on the wheel.'
+    assert [entry.label for entry in session.entries] == ["Ana", "Bob"]
+
+    # Empty query never substring-matches its way onto the wheel.
+    assert wheel_ops.remove_label(session, "") == (
+        None,
+        'Couldn\'t find "" on the wheel.',
+    )
+    assert len(session.entries) == 2
+
+
+def test_add_appends_and_keeps_table():
+    session = _session(["Ana"])
+    session.source_table = _table()
+
+    wheel_ops.add_entries(session, ["Sam", "Tia"])
+
+    assert [entry.label for entry in session.entries] == ["Ana", "Sam", "Tia"]
+    assert session.source_table is not None
+    assert session.source_table.headers == ["name", "id"]
+
+
+def test_switch_without_table_warns():
+    session = _session(["Ana"])
+
+    warning = wheel_ops.switch_column(session, "id")
+
+    assert warning == "⚠️ No table to switch — upload a list image first."
+
+
+def test_switch_replaces_entries_and_clears_picked():
+    session = _session(["Ana", "Bob"])
+    session.source_table = _table()
+    session.picked = [Entry(id="p0", label="Chi")]
+
+    warning = wheel_ops.switch_column(session, "id")
+
+    assert warning is None
+    assert [entry.label for entry in session.entries] == ["A1", "B2"]
+    assert session.picked == []
+    assert session.source_table is not None  # still switchable afterwards
+
+
+def test_reset_clears_everything():
+    session = _session(["Ana"])
+    session.picked = [Entry(id="p0", label="Chi")]
+    session.warnings = ["⚠️ stale note"]
+    session.source_table = _table()
+    session.media = {"crop": b"png-bytes"}
+
+    wheel_ops.reset(session)
+
+    assert session.entries == []
+    assert session.picked == []
+    assert session.warnings == []
+    assert session.source_table is None
+    assert session.media == {}
