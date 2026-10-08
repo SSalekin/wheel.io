@@ -41,6 +41,13 @@ def _table(confidence: float = 95.0) -> Table:
 def test_text_path_builds_entries(monkeypatch, session):
     # Mock the OCR step (ocr.read_table) at its images.py import site.
     monkeypatch.setattr(images, "read_table", lambda image_bytes: _table())
+    # A clear text steer must decide without any tie-break: if steering
+    # broke and the message fell through to ask_intent, this stub fails
+    # the test instead of letting the GeminiError fallback pass it.
+    monkeypatch.setattr(
+        "app.services.gemini.ask_intent",
+        lambda *args, **kwargs: pytest.fail("ask_intent ran — steer must decide first"),
+    )
 
     result = images.process_single_image(b"png-bytes", "wheel the names", session)
 
@@ -84,7 +91,10 @@ def test_vision_down_with_unusable_table_raises_unreadable(monkeypatch, session)
 def test_face_steered_raises_until_task_11(monkeypatch, session):
     # Face-only steer takes the faces branch; Task 10 ships the
     # placeholder raise that Task 11 replaces with real detection.
-    monkeypatch.setattr(images, "read_table", lambda image_bytes: None)
+    # A real table is present on purpose: with steering broken the
+    # ambiguous-branch GeminiError fallback sees the table and takes the
+    # *text* path — only genuine FACE_STEER matching can raise here.
+    monkeypatch.setattr(images, "read_table", lambda image_bytes: _table())
 
     with pytest.raises(UserFacingError) as excinfo:
         images.process_single_image(b"png-bytes", "wheel the faces", session)
