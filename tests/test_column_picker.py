@@ -52,6 +52,20 @@ def test_header_token_match():
 
 
 @respx.mock
+def test_no_subword_mention_false_positive():
+    # "provide" contains the substring "id", but no message token starts
+    # with "id" — the `name` group must win through "names".
+    table = _table(("Name", ["Ana", "Bob"]), ("Student ID", ["7", "8"]))
+
+    choice = pick_column(table, "provide the names")
+
+    assert choice.values == ["Ana", "Bob"]
+    assert choice.source == "header"
+    assert choice.warning is None
+    assert not respx.calls
+
+
+@respx.mock
 def test_exact_header_in_message():
     # The exact "Email" header must win over the looser "Contact Email"
     # that step 2's keyword containment would have picked instead.

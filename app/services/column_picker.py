@@ -53,9 +53,13 @@ def pick_column(table: Table, message: str) -> ColumnChoice:
         if column.header.lower() in tokens:
             return ColumnChoice(values=column.values, source="header")
 
-    # 2. Keyword heuristics: mention in the message → header token match.
+    # 2. Keyword heuristics: a message token starting with the mention →
+    #    header token match. Prefixes, not substrings: "provide" must not
+    #    trigger the `id` group, while "ids" still does.
     for mentions, header_tokens in _KEYWORD_GROUPS:
-        if not any(mention in lowered for mention in mentions):
+        if not any(
+            token.startswith(mention) for token in tokens for mention in mentions
+        ):
             continue
         for column in table.columns:
             if _is_empty(column):
