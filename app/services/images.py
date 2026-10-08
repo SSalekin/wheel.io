@@ -15,6 +15,7 @@ from app.models import Entry, Intent, Table, WheelSession
 from app.services import gemini
 from app.services.column_picker import pick_column
 from app.services.errors import UserFacingError
+from app.services.faces import crop_faces, detect_face_boxes
 from app.services.gemini import GeminiError
 from app.services.ocr import read_table
 from app.services.rules import FACE_STEER, TEXT_STEER
@@ -40,9 +41,8 @@ def process_single_image(
 ) -> ImageResult:
     """Turn one upload into wheel entries (spec §7 single-image pipeline).
 
-    ``session`` travels along for the faces branch — Task 11 stores face
-    crops in ``session.media`` there; Task 10's placeholder never
-    reaches it.
+    ``session`` travels along for the faces branch: detected face crops
+    are stored in ``session.media`` and referenced by ``image_ref``.
     """
     table = read_table(image_bytes)
 
@@ -51,7 +51,7 @@ def process_single_image(
     face_steer = bool(tokens & FACE_STEER)
 
     if face_steer and not text_steer:
-        return _faces_branch()
+        return _faces_branch(image_bytes, message, session)
     if text_steer and not face_steer:
         return _text_path(image_bytes, message, table)
 
@@ -62,8 +62,8 @@ def process_single_image(
             message,
             {
                 "table_headers": table.headers if table else [],
-                # Face detection lands with Task 11's faces branch, so
-                # nothing has counted faces before the steer runs.
+                # Detection runs inside the faces branch, after this
+                # decision — so nothing has counted faces before the steer.
                 "face_count": 0,
             },
         )
@@ -73,7 +73,7 @@ def process_single_image(
     else:
         faces = _intent_indicates_faces(intent)
     if faces:
-        return _faces_branch()
+        return _faces_branch(image_bytes, message, session)
     return _text_path(image_bytes, message, table)
 
 
@@ -111,13 +111,31 @@ def _from_table(table: Table, message: str) -> ImageResult:
     )
 
 
-def _faces_branch() -> ImageResult:
-    """Faces path — Task 10 placeholder, no detection yet.
+def _faces_branch(
+    image_bytes: bytes, message: str, session: WheelSession
+) -> ImageResult:
+    """Faces path (spec §7): Haar boxes → crops in ``session.media``.
 
-    Task 11 replaces the raise below with real detection (Haar boxes →
-    face crops stored in ``session.media`` → ``Face N`` entries).
+    Zero detections escalate exactly like the text path's unreliable
+    reading: Gemini vision labels the image as plain entries, and a dead
+    vision call surfaces the unreadable-image copy.
     """
-    raise UserFacingError(_UNREADABLE)
+    boxes = detect_face_boxes(image_bytes)
+    if not boxes:
+        try:
+            labels = gemini.ask_vision(image_bytes, message)
+        except GeminiError:
+            raise UserFacingError(_UNREADABLE)
+        return ImageResult(entries=_entries(labels), table=None, warnings=[])
+
+    entries: list[Entry] = []
+    for index, crop in enumerate(crop_faces(image_bytes, boxes)):
+        media_id = uuid4().hex
+        session.media[media_id] = crop
+        entries.append(
+            Entry(id=uuid4().hex, label=f"Face {index + 1}", image_ref=media_id)
+        )
+    return ImageResult(entries=entries, table=None, warnings=[])
 
 
 def _intent_indicates_faces(intent: Intent) -> bool:

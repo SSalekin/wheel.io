@@ -30,6 +30,53 @@
     return label.length > LABEL_MAX ? label.slice(0, LABEL_MAX - 1) + "…" : label;
   }
 
+  var thumbs = {};  // image_url -> Image once ready; false once failed
+
+  /* Cached, fully-decoded thumbnail for url (null until then).
+   * First sight starts the load; load/error redraw so the wheel settles
+   * into photo or label-only without ever blocking the render. */
+  function thumbFor(url) {
+    if (!url) return null;
+    if (url in thumbs) {
+      var cached = thumbs[url];
+      return cached && cached.complete && cached.naturalWidth > 0
+        ? cached
+        : null;
+    }
+    var img = new Image();
+    thumbs[url] = img;
+    img.onload = function () { draw(); };
+    img.onerror = function () { thumbs[url] = false; draw(); };
+    img.src = url;
+    return null;
+  }
+
+  /* Draw one photo into a square at the segment's mid-angle, clipped to
+   * that segment's wedge so neighbors stay untouched (spec §9). */
+  function drawThumb(img, i, cx, cy, radius, delta) {
+    var mid = (i + 0.5) * delta + rotation - HALF_PI;  // canvas angle
+    var dist = radius * 0.62;
+    // Square side: the wedge's chord at `dist`, never more than half r.
+    var side = Math.min(radius * 0.5, 2 * dist * Math.sin(delta / 2) * 0.85);
+    if (side < 12) return;  // crowded wheel: labels only, still readable
+    var x = cx + Math.cos(mid) * dist;
+    var y = cy + Math.sin(mid) * dist;
+    // Contain-fit: the whole crop stays inside the square.
+    var scale = Math.min(side / img.naturalWidth, side / img.naturalHeight);
+    var w = img.naturalWidth * scale;
+    var h = img.naturalHeight * scale;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, radius, i * delta + rotation - HALF_PI,
+            (i + 1) * delta + rotation - HALF_PI);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+    ctx.restore();
+  }
+
   function draw() {
     // Every OOB #wheel-pane swap replaces the node: re-acquire it per draw,
     // or we'd render into a detached canvas after the first swap.
@@ -68,19 +115,33 @@
       ctx.stroke();
     }
 
+    // Photos: each entry's image clipped into its own equal-width
+    // segment. Until an image loads — or if it fails to load — the
+    // segment simply keeps its palette fill and label.
+    for (i = 0; i < n; i++) {
+      var thumb = thumbFor(entries[i] && entries[i].image_url);
+      if (thumb) drawThumb(thumb, i, cx, cy, radius, delta);
+    }
+
     ctx.fillStyle = "#1f2430";
     ctx.font = "600 13px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
     for (i = 0; i < n; i++) {
       var mid = (i + 0.5) * delta + rotation;  // angle from 12 o'clock
       var flipped = Math.sin(mid) < 0;         // keep left-side labels upright
+      var text = labelFor(String(entries[i].label || ""));
+      var px = flipped ? -radius * 0.55 : radius * 0.55;
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(mid - HALF_PI);
       if (flipped) ctx.rotate(Math.PI);
-      ctx.fillText(labelFor(String(entries[i].label || "")),
-                   flipped ? -radius * 0.55 : radius * 0.55, 0);
+      // Halo keeps the label readable when a photo fills the segment.
+      ctx.strokeText(text, px, 0);
+      ctx.fillText(text, px, 0);
       ctx.restore();
     }
   }

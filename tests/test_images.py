@@ -88,12 +88,13 @@ def test_vision_down_with_unusable_table_raises_unreadable(monkeypatch, session)
     assert str(excinfo.value) == UNREADABLE
 
 
-def test_face_steered_raises_until_task_11(monkeypatch, session):
-    # Face-only steer takes the faces branch; Task 10 ships the
-    # placeholder raise that Task 11 replaces with real detection.
-    # A real table is present on purpose: with steering broken the
-    # ambiguous-branch GeminiError fallback sees the table and takes the
-    # *text* path — only genuine FACE_STEER matching can raise here.
+def test_face_steered_unreadable_still_raises(monkeypatch, session):
+    # Face-only steer takes the faces branch even with a real table on
+    # hand: with steering broken the ambiguous-branch GeminiError
+    # fallback sees the table and takes the *text* path — only genuine
+    # FACE_STEER matching reaches detection. The bytes don't decode
+    # (zero faces) and vision is down (no key), so the faces branch ends
+    # at the exact unreadable copy.
     monkeypatch.setattr(images, "read_table", lambda image_bytes: _table())
 
     with pytest.raises(UserFacingError) as excinfo:

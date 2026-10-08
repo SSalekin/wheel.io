@@ -47,3 +47,21 @@ def test_spin_empty_returns_none():
     session = _session([])
 
     assert wheel_ops.spin(session, rng=random.Random(0)) is None
+
+
+def test_wheel_data_carries_image_url():
+    # Thumbnail ruling: entries with an image_ref ship their media URL;
+    # plain entries ship null so wheel.js stays label-only.
+    session = WheelSession(
+        token="token",
+        created_at=0.0,
+        entries=[
+            Entry(id="id0", label="Ana", image_ref="crop1"),
+            Entry(id="id1", label="Bob"),
+        ],
+    )
+
+    assert wheel_ops.wheel_data(session) == [
+        {"label": "Ana", "image_url": "/media/token/crop1"},
+        {"label": "Bob", "image_url": None},
+    ]
