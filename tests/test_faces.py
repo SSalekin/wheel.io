@@ -142,11 +142,46 @@ def test_zero_faces_and_vision_down_raises_unreadable(monkeypatch, session):
     assert str(excinfo.value) == UNREADABLE
 
 
+def test_detect_face_boxes_wiring(monkeypatch):
+    # Review follow-up: the discriminating test for detect_face_boxes —
+    # cascade path, grayscale input, int-tuple output. A stub that always
+    # returns [], a typo'd cascade filename at the call site, or a skipped
+    # gray conversion must fail here (the pipeline tests monkeypatch
+    # detection by design, so this is the wiring's only coverage).
+    _, image_bytes = _gradient_png(width=320, height=240)
+    recorded = {}
+
+    class _SpyCascade:
+        def __init__(self, path):
+            recorded["path"] = path
+
+        def empty(self):
+            return False
+
+        def detectMultiScale(self, image, **kwargs):
+            recorded["image"] = image
+            return np.array([[10, 10, 50, 50]], dtype=np.int64)
+
+    monkeypatch.setattr(cv2, "CascadeClassifier", _SpyCascade)
+
+    boxes = faces.detect_face_boxes(image_bytes)
+
+    # Built from faces' own constant: a filename typo can't ship green.
+    assert recorded["path"] == os.path.join(
+        cv2.data.haarcascades, faces._CASCADE_FILE
+    )
+    gray = recorded["image"]
+    assert gray.ndim == 2, "detectMultiScale must receive a gray image"
+    assert gray.shape == (240, 320), "gray conversion must keep dimensions"
+    # np.int64 in ⇒ Python int out: the int() casts are load-bearing.
+    assert boxes == [(10, 10, 50, 50)]
+    assert all(isinstance(value, int) for box in boxes for value in box)
+
+
 def test_real_cascade_asset_present():
     # Dep ruling: the cascade XML must ship with the installed opencv wheel.
-    path = os.path.join(
-        cv2.data.haarcascades, "haarcascade_frontalface_default.xml"
-    )
+    # Path built from faces' own constant so a typo can't ship green.
+    path = os.path.join(cv2.data.haarcascades, faces._CASCADE_FILE)
     assert not cv2.CascadeClassifier(path).empty()
 
 
