@@ -5,6 +5,7 @@ The dispatch test hits the real `POST /chat` endpoint with multipart
 uploads (validation happens in the controller before dispatch, Task 10).
 """
 
+import html
 import io
 import re
 
@@ -13,13 +14,16 @@ import respx
 from PIL import Image
 
 from app.main import app
-from app.models import WheelSession
+from app.models import Table, TableColumn, WheelSession
 from app.services import images
 
 API_URL = (
     "https://generativelanguage.googleapis.com/v1beta"
     "/models/gemini-2.5-flash:generateContent"
 )
+
+# Byte-exact copy of wheel_ops._NO_TABLE_WARNING.
+NO_TABLE = "⚠️ No table to switch — upload a list image first."
 
 
 @pytest.fixture(autouse=True)
@@ -114,3 +118,51 @@ def test_chat_dispatch_builds_wheel(client):
     assert all(entry.image_ref in session.media for entry in session.entries)
     # The regions that change (wheel pane, sidebar, go form) ship OOB.
     assert "hx-swap-oob" in response.text
+
+
+def test_switch_after_photos_cannot_clobber_them(client, monkeypatch):
+    # Final-review finding: photos replacing a roster-built wheel must
+    # drop the roster's table too — otherwise a later "switch to id"
+    # silently rebuilds the wheel from a table the user no longer sees.
+    table = Table(
+        columns=[
+            TableColumn(header="Name", values=["Ana", "Bob"]),
+            TableColumn(header="ID", values=["A1", "B2"]),
+        ],
+        confidence=95.0,
+    )
+    monkeypatch.setattr("app.services.images.read_table", lambda image_bytes: table)
+    token = _page_token(client)
+
+    # 1) Roster upload ⇒ create_image sets entries AND source_table.
+    roster = client.post(
+        "/chat",
+        data={"token": token, "message": "make a wheel with the names"},
+        files=[("files", ("roster.png", _tiny_png(), "image/png"))],
+    )
+    assert roster.status_code == 200
+    session = app.state.store.get(token)
+    assert [entry.label for entry in session.entries] == ["Ana", "Bob"]
+    assert session.source_table is not None
+
+    # 2) Two photos ⇒ create_images replaces the wheel wholesale.
+    photos = client.post(
+        "/chat",
+        data={"token": token, "message": "avatars"},
+        files=[
+            ("files", ("team photo.png", _tiny_png(), "image/png")),
+            ("files", ("Chi.PNG", _tiny_png(), "image/png")),
+        ],
+    )
+    assert photos.status_code == 200
+    session = app.state.store.get(token)
+    assert [entry.label for entry in session.entries] == ["Team Photo", "Chi"]
+
+    # 3) "switch to id" must not rebuild from the stale roster table:
+    # the photos stay on the wheel and the exact no-table copy ships.
+    switch = client.post("/chat", data={"token": token, "message": "switch to id"})
+
+    assert switch.status_code == 200
+    session = app.state.store.get(token)
+    assert [entry.label for entry in session.entries] == ["Team Photo", "Chi"]
+    assert NO_TABLE in html.unescape(switch.text)

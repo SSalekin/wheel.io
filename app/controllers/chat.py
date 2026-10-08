@@ -151,6 +151,10 @@ def chat(
         ]
         result = process_multiple_images(named, session)
         wheel_ops.replace_entries(session, result.entries)
+        # The replaced wheel is filename-backed: drop any table from an
+        # earlier upload so `switch` can't rebuild from entries the user
+        # no longer sees (final-review fix).
+        session.source_table = None
 
         html = bubble(request, "user", message)
         html += warning_html
