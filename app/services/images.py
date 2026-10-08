@@ -1,12 +1,18 @@
-"""Single-image pipeline: read the table, steer, pick or escalate.
+"""Image pipelines: single-image read/steer, multi-image filenames.
 
 Spec §7: the table reader runs first, then the message steers text vs
 faces (``TEXT_STEER``/``FACE_STEER``) with Gemini breaking ambiguous
 ties from detector summaries — it never sees the image. The text path
 escalates to Gemini vision whenever the reading itself is unreliable;
 a reliable table goes through the column picker instead.
+
+Multiple uploads take the filename-only path
+(``process_multiple_images``): no reading, no detection, no Gemini —
+each file becomes one entry labeled by its own name.
 """
 
+import re
+from pathlib import PurePath
 from uuid import uuid4
 
 from pydantic import BaseModel
@@ -75,6 +81,39 @@ def process_single_image(
     if faces:
         return _faces_branch(image_bytes, message, session)
     return _text_path(image_bytes, message, table)
+
+
+def process_multiple_images(
+    named: list[tuple[str, bytes]], session: WheelSession
+) -> ImageResult:
+    """Turn multiple uploads into one wheel entry each (Task 13).
+
+    No reading, no detection, no Gemini: the label is the filename minus
+    extension, prettified. Each file's bytes are stored in
+    ``session.media`` and referenced by its entry's ``image_ref``.
+    """
+    entries: list[Entry] = []
+    for filename, data in named:
+        media_id = uuid4().hex
+        session.media[media_id] = data
+        entries.append(
+            Entry(
+                id=uuid4().hex,
+                label=_prettify_filename(filename),
+                image_ref=media_id,
+            )
+        )
+    return ImageResult(entries=entries, table=None, warnings=[])
+
+
+def _prettify_filename(filename: str) -> str:
+    """Filename minus extension, prettified — byte-pinned rule:
+
+    ``re.sub(r"[-_]+", " ", stem).strip().title()`` — e.g. ``Chi.PNG`` →
+    ``Chi``, ``team photo.png`` → ``Team Photo``, ``student_a.png`` →
+    ``Student A``.
+    """
+    return re.sub(r"[-_]+", " ", PurePath(filename).stem).strip().title()
 
 
 def _text_path(

@@ -8,7 +8,7 @@ from app.controllers.spin import EMPTY_WHEEL
 from app.models import WheelSession
 from app.services import wheel_ops
 from app.services.errors import UserFacingError
-from app.services.images import process_single_image
+from app.services.images import process_multiple_images, process_single_image
 from app.services.intent_router import interpret
 
 router = APIRouter()
@@ -121,8 +121,8 @@ def chat(
         return HTMLResponse(bubble(request, "system", intent.question or "") + warning_html)
 
     if intent.action == "create_image" and len(files) == 1:
-        # Exactly one upload ⇒ the single-image pipeline; multi-image
-        # dispatch lands with Task 13.
+        # Exactly one upload ⇒ the single-image pipeline; the multi-image
+        # branch follows below.
         try:
             result = process_single_image(upload_bytes[0], message, session)
         except UserFacingError as exc:
@@ -138,6 +138,22 @@ def chat(
         html += warning_html
         if result.warnings:
             html += bubble(request, "system", "\n".join(result.warnings))
+        html += _wheel_regions(request, session)
+        return HTMLResponse(html)
+
+    if intent.action == "create_images" and len(files) >= 2:
+        # ≥2 uploads ⇒ one entry per filename — no OCR, no faces, no
+        # Gemini (Task 13). Bytes are already validated above; pair each
+        # payload with its upload name, then the single replace path.
+        named = [
+            (upload.filename or "", data)
+            for upload, data in zip(files, upload_bytes)
+        ]
+        result = process_multiple_images(named, session)
+        wheel_ops.replace_entries(session, result.entries)
+
+        html = bubble(request, "user", message)
+        html += warning_html
         html += _wheel_regions(request, session)
         return HTMLResponse(html)
 
@@ -204,6 +220,8 @@ def chat(
         )
         return HTMLResponse(html)
 
-    # Follow-up dispatch above; multi-image (create_images) gets its branch
-    # in Task 13 — until then the message is echoed without changing state.
+    # Every rule-bound action has a branch above. What can still land
+    # here is a Gemini reply carrying an image action with a mismatched
+    # file count (e.g. create_images with nothing attached): echo the
+    # message without touching state — never mutate on an unmatched intent.
     return HTMLResponse(bubble(request, "user", message) + warning_html)

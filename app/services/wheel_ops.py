@@ -47,14 +47,22 @@ def wheel_data(session: WheelSession) -> list[dict]:
     ]
 
 
-def replace_entries(session: WheelSession, labels: list[str]) -> None:
-    """Replace the wheel wholesale — one entry per label, picks cleared.
+def replace_entries(
+    session: WheelSession, items: list[str] | list[Entry]
+) -> None:
+    """Replace the wheel wholesale — one entry per item, picks cleared.
 
+    Plain labels mint fresh entries; prebuilt ``Entry`` objects — image
+    uploads carrying ``image_ref`` (Task 13) — are installed as-is, so
+    the media refs survive the single replace path.
     ``source_table`` is deliberately untouched: ``switch_column`` reuses
     this to swap to another column of the same table, while callers that
     build a fresh wheel from typed text drop the table themselves.
     """
-    session.entries = [Entry(id=uuid4().hex, label=label) for label in labels]
+    session.entries = [
+        item if isinstance(item, Entry) else Entry(id=uuid4().hex, label=item)
+        for item in items
+    ]
     session.picked = []
 
 
