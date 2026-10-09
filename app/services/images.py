@@ -61,15 +61,18 @@ def process_single_image(
     if text_steer and not face_steer:
         return _text_path(image_bytes, message, table)
 
-    # Ambiguous steer (both or neither): Gemini picks the path from the
-    # message plus detector summaries (spec §7).
+    # Ambiguous steer (both or neither): run detection first.
+    # If faces are detected, go directly to the faces branch — no need
+    # to ask Gemini. Only escalate to Gemini when no faces are found.
+    face_boxes = detect_face_boxes(image_bytes)
+    if face_boxes:
+        return _faces_branch(image_bytes, message, session, face_boxes)
+
     try:
         intent = gemini.ask_intent(
             message,
             {
                 "table_headers": table.headers if table else [],
-                # Detection runs inside the faces branch, after this
-                # decision — so nothing has counted faces before the steer.
                 "face_count": 0,
             },
         )
@@ -151,7 +154,10 @@ def _from_table(table: Table, message: str) -> ImageResult:
 
 
 def _faces_branch(
-    image_bytes: bytes, message: str, session: WheelSession
+    image_bytes: bytes,
+    message: str,
+    session: WheelSession,
+    boxes: list[tuple[int, int, int, int]] | None = None,
 ) -> ImageResult:
     """Faces path (spec §7): Haar boxes → crops in ``session.media``.
 
@@ -159,7 +165,8 @@ def _faces_branch(
     reading: Gemini vision labels the image as plain entries, and a dead
     vision call surfaces the unreadable-image copy.
     """
-    boxes = detect_face_boxes(image_bytes)
+    if boxes is None:
+        boxes = detect_face_boxes(image_bytes)
     if not boxes:
         try:
             labels = gemini.ask_vision(image_bytes, message)

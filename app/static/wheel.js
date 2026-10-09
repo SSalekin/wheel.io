@@ -131,6 +131,8 @@
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(255,255,255,0.9)";
     for (i = 0; i < n; i++) {
+      // Skip label when a photo is present — the face crop is enough.
+      if (entries[i] && entries[i].image_url) continue;
       var mid = (i + 0.5) * delta + rotation;  // angle from 12 o'clock
       var flipped = Math.sin(mid) < 0;         // keep left-side labels upright
       var text = labelFor(String(entries[i].label || ""));

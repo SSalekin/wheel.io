@@ -4,6 +4,9 @@ Haar cascade detection runs entirely offline — no AI involved.
 ``detect_face_boxes`` returns frontal-face boxes as ``(x, y, w, h)``;
 ``crop_faces`` turns each box into a standalone PNG with ~10% margin per
 side, clipped to the image bounds.
+
+Detection tries multiple strategies (strict, relaxed, profile) and merges
+results to handle group photos where a single strict pass misses faces.
 """
 
 import os
@@ -13,15 +16,21 @@ import numpy as np
 
 # Cascade asset shipped inside the opencv wheel (see cv2.data.haarcascades).
 _CASCADE_FILE = "haarcascade_frontalface_default.xml"
+_PROFILE_CASCADE_FILE = "haarcascade_profileface.xml"
 
-# Standard detectMultiScale params: gentle scale steps, the classic
-# neighborhood-vote floor, and a small floor against noise specks.
-_SCALE_FACTOR = 1.1
-_MIN_NEIGHBORS = 5
-_MIN_SIZE = (30, 30)
+# Detection strategies: (cascade_file, scale_factor, min_neighbors, min_size)
+# Tried in order; results are merged with overlap detection.
+_DETECTION_STRATEGIES = [
+    (_CASCADE_FILE, 1.1, 5, (30, 30)),  # strict frontal
+    (_CASCADE_FILE, 1.1, 3, (20, 20)),  # relaxed frontal
+    (_PROFILE_CASCADE_FILE, 1.1, 3, (20, 20)),  # relaxed profile
+]
 
 # Crop padding: ~10% of each box dimension per side.
 _MARGIN_PERCENT = 10
+
+# IoU threshold for merging overlapping detections.
+_MERGE_IOU_THRESHOLD = 0.3
 
 
 def detect_face_boxes(image_bytes: bytes) -> list[tuple[int, int, int, int]]:
@@ -33,19 +42,67 @@ def detect_face_boxes(image_bytes: bytes) -> list[tuple[int, int, int, int]]:
     image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         return []
-    cascade = cv2.CascadeClassifier(
-        os.path.join(cv2.data.haarcascades, _CASCADE_FILE)
-    )
-    if cascade.empty():  # dep guard: asset must ship with the opencv wheel
-        return []
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    boxes = cascade.detectMultiScale(
-        gray,
-        scaleFactor=_SCALE_FACTOR,
-        minNeighbors=_MIN_NEIGHBORS,
-        minSize=_MIN_SIZE,
-    )
-    return [(int(x), int(y), int(w), int(h)) for x, y, w, h in boxes]
+
+    all_boxes: list[tuple[int, int, int, int]] = []
+    for cascade_file, scale_factor, min_neighbors, min_size in _DETECTION_STRATEGIES:
+        cascade_path = os.path.join(cv2.data.haarcascades, cascade_file)
+        if not os.path.exists(cascade_path):
+            continue
+        cascade = cv2.CascadeClassifier(cascade_path)
+        if cascade.empty():
+            continue
+        boxes = cascade.detectMultiScale(
+            gray,
+            scaleFactor=scale_factor,
+            minNeighbors=min_neighbors,
+            minSize=min_size,
+        )
+        all_boxes.extend([(int(x), int(y), int(w), int(h)) for x, y, w, h in boxes])
+
+    return _merge_overlapping_boxes(all_boxes)
+
+
+def _merge_overlapping_boxes(
+    boxes: list[tuple[int, int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    """Merge overlapping boxes, keeping the larger one."""
+    if not boxes:
+        return []
+
+    # Sort by area (largest first) so we keep the most confident detection
+    sorted_boxes = sorted(boxes, key=lambda b: b[2] * b[3], reverse=True)
+    merged: list[tuple[int, int, int, int]] = []
+
+    for box in sorted_boxes:
+        is_duplicate = False
+        for kept in merged:
+            if _iou(box, kept) > _MERGE_IOU_THRESHOLD:
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            merged.append(box)
+
+    return merged
+
+
+def _iou(box1: tuple[int, int, int, int], box2: tuple[int, int, int, int]) -> float:
+    """Calculate Intersection over Union of two boxes."""
+    x1, y1, w1, h1 = box1
+    x2, y2, w2, h2 = box2
+
+    xi1 = max(x1, x2)
+    yi1 = max(y1, y2)
+    xi2 = min(x1 + w1, x2 + w2)
+    yi2 = min(y1 + h1, y2 + h2)
+
+    if xi2 <= xi1 or yi2 <= yi1:
+        return 0.0
+
+    intersection = (xi2 - xi1) * (yi2 - yi1)
+    union = w1 * h1 + w2 * h2 - intersection
+
+    return intersection / union if union > 0 else 0.0
 
 
 def crop_faces(

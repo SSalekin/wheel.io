@@ -153,7 +153,7 @@ def test_detect_face_boxes_wiring(monkeypatch):
 
     class _SpyCascade:
         def __init__(self, path):
-            recorded["path"] = path
+            recorded.setdefault("paths", []).append(path)
 
         def empty(self):
             return False
@@ -167,15 +167,37 @@ def test_detect_face_boxes_wiring(monkeypatch):
     boxes = faces.detect_face_boxes(image_bytes)
 
     # Built from faces' own constant: a filename typo can't ship green.
-    assert recorded["path"] == os.path.join(
-        cv2.data.haarcascades, faces._CASCADE_FILE
-    )
+    expected_path = os.path.join(cv2.data.haarcascades, faces._CASCADE_FILE)
+    assert expected_path in recorded["paths"]
     gray = recorded["image"]
     assert gray.ndim == 2, "detectMultiScale must receive a gray image"
     assert gray.shape == (240, 320), "gray conversion must keep dimensions"
     # np.int64 in ⇒ Python int out: the int() casts are load-bearing.
     assert boxes == [(10, 10, 50, 50)]
     assert all(isinstance(value, int) for box in boxes for value in box)
+
+
+def test_merge_overlapping_boxes():
+    # Overlapping boxes are merged, keeping the larger one
+    boxes = [(10, 10, 50, 50), (12, 12, 48, 48), (100, 100, 50, 50)]
+    merged = faces._merge_overlapping_boxes(boxes)
+    assert len(merged) == 2
+    assert (10, 10, 50, 50) in merged
+    assert (100, 100, 50, 50) in merged
+
+
+def test_merge_overlapping_boxes_empty():
+    assert faces._merge_overlapping_boxes([]) == []
+
+
+def test_iou():
+    # Identical boxes have IoU = 1.0
+    assert faces._iou((10, 10, 50, 50), (10, 10, 50, 50)) == 1.0
+    # Non-overlapping boxes have IoU = 0.0
+    assert faces._iou((10, 10, 50, 50), (100, 100, 50, 50)) == 0.0
+    # Partially overlapping boxes have IoU between 0 and 1
+    iou = faces._iou((10, 10, 50, 50), (30, 30, 50, 50))
+    assert 0.0 < iou < 1.0
 
 
 def test_real_cascade_asset_present():
