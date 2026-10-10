@@ -123,6 +123,30 @@
       if (thumb) drawThumb(thumb, i, cx, cy, radius, delta);
     }
 
+    // Center hub
+    ctx.beginPath();
+    ctx.arc(cx, cy, 28, 0, TAU);
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(0,0,0,0.15)";
+    ctx.shadowBlur = 6;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Pointer at top
+    ctx.beginPath();
+    ctx.moveTo(cx, 8);
+    ctx.lineTo(cx - 10, 28);
+    ctx.lineTo(cx + 10, 28);
+    ctx.closePath();
+    ctx.fillStyle = "#ef4444";
+    ctx.shadowColor = "rgba(0,0,0,0.2)";
+    ctx.shadowBlur = 4;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
     ctx.fillStyle = "#1f2430";
     ctx.font = "600 13px system-ui, sans-serif";
     ctx.textAlign = "center";
@@ -153,6 +177,10 @@
     render: function (next) {
       entries = Array.isArray(next) ? next : [];
       draw();
+      // If entries have images that haven't loaded yet, draw() will show
+      // blank segments. Once images load, thumbFor triggers a redraw.
+      // But if ALL entries have images and none loaded yet, we need to
+      // ensure the canvas is still drawn (it is — draw() above).
     },
 
     /* Animate ≈5 turns + settle so `index`'s center lands at 12 o'clock. */
@@ -195,10 +223,10 @@
     }
   }
 
-  /* After any htmx request, re-read #wheel-data (inside the swapped
+  /* After any htmx swap, re-read #wheel-data (inside the swapped
      #wheel-pane): spin when the server says it picked a winner, otherwise
      just redraw. Never computes a winner itself. */
-  document.addEventListener("htmx:afterRequest", function () {
+  document.addEventListener("htmx:afterSwap", function (event) {
     var wheelData = document.getElementById("wheel-data");
     if (!wheelData) return;
     var data = wheelData.dataset;

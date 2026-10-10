@@ -1,5 +1,5 @@
 <ol id="picked-list" class="picked-list" hx-swap-oob="true">
   {%- for entry in picked %}
-  <li>{% if entry.image_ref %}🖼 {% endif %}{{ entry.label }}</li>
+  <li>{% if entry.image_ref %}<img src="/media/{{ session.token }}/{{ entry.image_ref }}" alt="">{% endif %}{{ entry.label }}</li>
   {%- endfor %}
 </ol>

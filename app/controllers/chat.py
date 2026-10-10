@@ -62,7 +62,7 @@ def _wheel_regions(
         },
     )
     html += render_partial(
-        request, "partials/picked_list.html", {"picked": session.picked}
+        request, "partials/picked_list.html", {"picked": session.picked, "session": session}
     )
     html += render_partial(
         request,

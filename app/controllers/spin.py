@@ -26,7 +26,7 @@ def _empty_wheel_response(request: Request, session) -> HTMLResponse:
             },
         )
         + render_partial(
-            request, "partials/picked_list.html", {"picked": session.picked}
+            request, "partials/picked_list.html", {"picked": session.picked, "session": session}
         )
     )
 
