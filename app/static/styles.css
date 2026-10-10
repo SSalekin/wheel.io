@@ -188,6 +188,12 @@ body {
 
 /* Disabled states (Go at 0 entries; other disabled controls) */
 
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -195,6 +201,16 @@ button:disabled {
 
 button:disabled:hover {
   background: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble.user,
+  .bubble.system {
+    animation: none;
+  }
+  .go-button {
+    transition: none;
+  }
 }
 
 /* Picked sidebar */
@@ -211,6 +227,12 @@ button:disabled:hover {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.picked-empty {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--muted);
 }
 
 .picked-list li img {

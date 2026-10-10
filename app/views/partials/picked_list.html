@@ -3,3 +3,6 @@
   <li>{% if entry.image_ref %}<img src="/media/{{ session.token }}/{{ entry.image_ref }}" alt="">{% endif %}{{ entry.label }}</li>
   {%- endfor %}
 </ol>
+{%- if not picked %}
+<p class="picked-empty">No one picked yet</p>
+{%- endif %}

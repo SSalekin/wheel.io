@@ -21,6 +21,8 @@
   var entries = [];
   var rotation = 0;     // radians; 0 = segment 0's leading edge at 12 o'clock
   var spinToken = 0;
+  var winningIndex = null;
+  var confetti = [];
 
   function normalize(angle) {
     return ((angle % TAU) + TAU) % TAU;
@@ -123,6 +125,24 @@
       if (thumb) drawThumb(thumb, i, cx, cy, radius, delta);
     }
 
+    // Winning segment glow
+    if (winningIndex !== undefined && winningIndex !== null && winningIndex >= 0 && winningIndex < n) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, radius, winningIndex * delta + rotation - HALF_PI,
+              (winningIndex + 1) * delta + rotation - HALF_PI);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(79, 70, 229, 0.25)";
+      ctx.fill();
+      ctx.strokeStyle = "#4f46e5";
+      ctx.lineWidth = 3;
+      ctx.shadowColor = "rgba(79, 70, 229, 0.6)";
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Center hub
     ctx.beginPath();
     ctx.arc(cx, cy, 28, 0, TAU);
@@ -176,11 +196,10 @@
     /* Draw the given {label, image_url} entries at the current rotation. */
     render: function (next) {
       entries = Array.isArray(next) ? next : [];
-      draw();
-      // If entries have images that haven't loaded yet, draw() will show
-      // blank segments. Once images load, thumbFor triggers a redraw.
-      // But if ALL entries have images and none loaded yet, we need to
-      // ensure the canvas is still drawn (it is — draw() above).
+      // Wait a frame so the swapped canvas is in the DOM before drawing.
+      requestAnimationFrame(function () {
+        draw();
+      });
     },
 
     /* Animate ≈5 turns + settle so `index`'s center lands at 12 o'clock. */
@@ -197,6 +216,13 @@
       var target = start + TURNS * TAU + normalize(desired - start);
       var beganAt = null;
 
+      // Show spinner on Go button
+      var goBtn = document.querySelector(".go-button");
+      if (goBtn) {
+        goBtn.disabled = true;
+        goBtn.textContent = "Spinning...";
+      }
+
       requestAnimationFrame(function frame(now) {
         if (token !== spinToken) return;  // a newer spin superseded this one
         if (beganAt === null) beganAt = now;
@@ -208,7 +234,13 @@
           return;
         }
         rotation = normalize(target);
+        winningIndex = index;
         draw();
+        launchConfetti();
+        if (goBtn) {
+          goBtn.disabled = false;
+          goBtn.textContent = "Go";
+        }
         if (done) done();
       });
     }
@@ -221,6 +253,44 @@
     } catch (err) {
       return [];
     }
+  }
+
+  /* Simple confetti burst */
+  function launchConfetti() {
+    var colors = ["#4f46e5", "#ffd9d9", "#ffe6cc", "#ddf5d5", "#d3ecfb", "#f4d9ff"];
+    for (var i = 0; i < 40; i++) {
+      confetti.push({
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        vx: (Math.random() - 0.5) * 8,
+        vy: (Math.random() - 0.5) * 8 - 3,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: Math.random() * 6 + 3,
+        life: 1
+      });
+    }
+    requestAnimationFrame(drawConfetti);
+  }
+
+  function drawConfetti() {
+    if (!confetti.length) return;
+    draw();
+    for (var i = confetti.length - 1; i >= 0; i--) {
+      var c = confetti[i];
+      c.x += c.vx;
+      c.y += c.vy;
+      c.vy += 0.15;
+      c.life -= 0.015;
+      if (c.life <= 0) {
+        confetti.splice(i, 1);
+        continue;
+      }
+      ctx.globalAlpha = c.life;
+      ctx.fillStyle = c.color;
+      ctx.fillRect(c.x, c.y, c.size, c.size);
+    }
+    ctx.globalAlpha = 1;
+    if (confetti.length) requestAnimationFrame(drawConfetti);
   }
 
   /* After any htmx swap, re-read #wheel-data (inside the swapped
@@ -283,5 +353,27 @@
     document.getElementById("chat-form").addEventListener("submit", function () {
       previewContainer.innerHTML = "";
     });
+  })();
+
+  /* Enter to send, Shift+Enter for newline */
+  (function () {
+    var chatInput = document.getElementById("chat-input");
+    if (!chatInput) return;
+    chatInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        document.getElementById("chat-form").requestSubmit();
+      }
+    });
+  })();
+
+  /* Auto-scroll chat to bottom on new message */
+  (function () {
+    var chatLog = document.getElementById("chat-log");
+    if (!chatLog) return;
+    var observer = new MutationObserver(function () {
+      chatLog.scrollTop = chatLog.scrollHeight;
+    });
+    observer.observe(chatLog, { childList: true });
   })();
 })();
