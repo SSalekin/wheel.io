@@ -1,30 +1,25 @@
 """Local face detection for the faces branch (spec §7).
 
-Haar cascade detection runs entirely offline — no AI involved.
-``detect_face_boxes`` returns frontal-face boxes as ``(x, y, w, h)``;
-``crop_faces`` turns each box into a standalone PNG with ~10% margin per
-side, clipped to the image bounds.
+YuNet detection runs entirely offline — the model ships in
+``app/models/``. ``detect_face_boxes`` returns face boxes as
+``(x, y, w, h)``; ``crop_faces`` turns each box into a standalone PNG
+with ~10% margin per side, clipped to the image bounds.
 
-Detection tries multiple strategies (strict, relaxed, profile) and merges
-results to handle group photos where a single strict pass misses faces.
+Low-confidence detections (below ``_CONFIDENCE_THRESHOLD``) are
+filtered out. If the model fails to load, detection returns ``[]``.
 """
 
 import os
+from pathlib import Path
 
 import cv2
 import numpy as np
 
-# Cascade asset shipped inside the opencv wheel (see cv2.data.haarcascades).
-_CASCADE_FILE = "haarcascade_frontalface_default.xml"
-_PROFILE_CASCADE_FILE = "haarcascade_profileface.xml"
+# YuNet model shipped in the app (no runtime download needed).
+_MODEL_PATH = str(Path(__file__).parent.parent / "models" / "face_detection_yunet.onnx")
 
-# Detection strategies: (cascade_file, scale_factor, min_neighbors, min_size)
-# Tried in order; results are merged with overlap detection.
-_DETECTION_STRATEGIES = [
-    (_CASCADE_FILE, 1.1, 5, (30, 30)),  # strict frontal
-    (_CASCADE_FILE, 1.1, 3, (20, 20)),  # relaxed frontal
-    (_PROFILE_CASCADE_FILE, 1.1, 3, (20, 20)),  # relaxed profile
-]
+# Minimum confidence for a detection to be kept.
+_CONFIDENCE_THRESHOLD = 0.7
 
 # Crop padding: ~10% of each box dimension per side.
 _MARGIN_PERCENT = 10
@@ -34,33 +29,44 @@ _MERGE_IOU_THRESHOLD = 0.3
 
 
 def detect_face_boxes(image_bytes: bytes) -> list[tuple[int, int, int, int]]:
-    """Detect frontal faces in ``image_bytes``.
+    """Detect faces in ``image_bytes`` using YuNet.
 
     Returns ``(x, y, w, h)`` boxes in pixel coordinates, or ``[]`` when
-    the bytes don't decode as an image or nothing is found.
+    the bytes don't decode as an image, the model fails to load, or no
+    faces are found above the confidence threshold.
     """
     image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         return []
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    all_boxes: list[tuple[int, int, int, int]] = []
-    for cascade_file, scale_factor, min_neighbors, min_size in _DETECTION_STRATEGIES:
-        cascade_path = os.path.join(cv2.data.haarcascades, cascade_file)
-        if not os.path.exists(cascade_path):
-            continue
-        cascade = cv2.CascadeClassifier(cascade_path)
-        if cascade.empty():
-            continue
-        boxes = cascade.detectMultiScale(
-            gray,
-            scaleFactor=scale_factor,
-            minNeighbors=min_neighbors,
-            minSize=min_size,
-        )
-        all_boxes.extend([(int(x), int(y), int(w), int(h)) for x, y, w, h in boxes])
+    h, w = image.shape[:2]
+    detector = _create_detector(w, h)
+    if detector is None:
+        return []
 
-    return _merge_overlapping_boxes(all_boxes)
+    _, faces = detector.detect(image)
+    if faces is None:
+        return []
+
+    # Filter by confidence and convert to (x, y, w, h) tuples
+    boxes: list[tuple[int, int, int, int]] = []
+    for face in faces:
+        confidence = float(face[14])
+        if confidence < _CONFIDENCE_THRESHOLD:
+            continue
+        x, y, w_face, h_face = int(face[0]), int(face[1]), int(face[2]), int(face[3])
+        boxes.append((x, y, w_face, h_face))
+
+    return _merge_overlapping_boxes(boxes)
+
+
+def _create_detector(w: int, h: int):
+    """Create YuNet detector, or return None if model is unavailable."""
+    try:
+        detector = cv2.FaceDetectorYN.create(_MODEL_PATH, "", (w, h))
+        return detector
+    except Exception:
+        return None
 
 
 def _merge_overlapping_boxes(

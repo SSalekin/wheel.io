@@ -8,6 +8,7 @@ against a synthetic image whose pixels encode their own coordinates.
 """
 
 import os
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -142,37 +143,42 @@ def test_zero_faces_and_vision_down_raises_unreadable(monkeypatch, session):
     assert str(excinfo.value) == UNREADABLE
 
 
+def test_detect_face_boxes_yunet_model_present():
+    # The YuNet model file must ship with the app.
+    model_path = Path(faces._MODEL_PATH).resolve()
+    assert model_path.exists(), f"YuNet model missing at {model_path}"
+
+
 def test_detect_face_boxes_wiring(monkeypatch):
-    # Review follow-up: the discriminating test for detect_face_boxes —
-    # cascade path, grayscale input, int-tuple output. A stub that always
-    # returns [], a typo'd cascade filename at the call site, or a skipped
-    # gray conversion must fail here (the pipeline tests monkeypatch
-    # detection by design, so this is the wiring's only coverage).
+    # Discriminating test for detect_face_boxes — YuNet path, confidence
+    # filtering, int-tuple output. A stub that returns low confidence
+    # only, or a missing model, must fail here (the pipeline tests
+    # monkeypatch detection by design, so this is the wiring's only
+    # coverage).
     _, image_bytes = _gradient_png(width=320, height=240)
     recorded = {}
 
-    class _SpyCascade:
-        def __init__(self, path):
-            recorded.setdefault("paths", []).append(path)
+    class _SpyDetector:
+        @staticmethod
+        def create(model_path, config, size):
+            recorded["model_path"] = model_path
+            recorded["size"] = size
+            return _SpyDetector()
 
-        def empty(self):
-            return False
+        def setInputSize(self, size):
+            recorded["input_size"] = size
 
-        def detectMultiScale(self, image, **kwargs):
+        def detect(self, image):
             recorded["image"] = image
-            return np.array([[10, 10, 50, 50]], dtype=np.int64)
+            return None, np.array([[10, 10, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95]], dtype=np.float32)
 
-    monkeypatch.setattr(cv2, "CascadeClassifier", _SpyCascade)
+    monkeypatch.setattr(cv2, "FaceDetectorYN", _SpyDetector)
 
     boxes = faces.detect_face_boxes(image_bytes)
 
-    # Built from faces' own constant: a filename typo can't ship green.
-    expected_path = os.path.join(cv2.data.haarcascades, faces._CASCADE_FILE)
-    assert expected_path in recorded["paths"]
-    gray = recorded["image"]
-    assert gray.ndim == 2, "detectMultiScale must receive a gray image"
-    assert gray.shape == (240, 320), "gray conversion must keep dimensions"
-    # np.int64 in ⇒ Python int out: the int() casts are load-bearing.
+    # Model path built from faces' own constant: a typo can't ship green.
+    assert recorded["model_path"] == faces._MODEL_PATH
+    assert recorded["size"] == (320, 240), "YuNet input size must match image dimensions"
     assert boxes == [(10, 10, 50, 50)]
     assert all(isinstance(value, int) for box in boxes for value in box)
 
@@ -200,15 +206,62 @@ def test_iou():
     assert 0.0 < iou < 1.0
 
 
-def test_real_cascade_asset_present():
-    # Dep ruling: the cascade XML must ship with the installed opencv wheel.
-    # Path built from faces' own constant so a typo can't ship green.
-    path = os.path.join(cv2.data.haarcascades, faces._CASCADE_FILE)
-    assert not cv2.CascadeClassifier(path).empty()
+def test_real_yunet_model_loads():
+    # The YuNet model must load successfully with the installed OpenCV.
+    detector = faces._create_detector(320, 240)
+    assert detector is not None, "YuNet model failed to load"
+
+
+def test_detect_face_boxes_filters_low_confidence(monkeypatch):
+    # YuNet: low-confidence detections must be filtered out.
+    _, image_bytes = _gradient_png(width=200, height=200)
+
+    class _SpyDetector:
+        @staticmethod
+        def create(model_path, config, size):
+            return _SpyDetector()
+
+        def setInputSize(self, size):
+            pass
+
+        def detect(self, image):
+            # Two faces: one high confidence, one low
+            return None, np.array([
+                [10, 10, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95],  # keep
+                [100, 100, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.30],  # filter
+            ], dtype=np.float32)
+
+    monkeypatch.setattr(cv2, "FaceDetectorYN", _SpyDetector)
+
+    boxes = faces.detect_face_boxes(image_bytes)
+    assert boxes == [(10, 10, 50, 50)]
+
+
+def test_detect_face_boxes_missing_model_returns_empty(monkeypatch, tmp_path):
+    # If the model file doesn't exist, detection should fail gracefully.
+    _, image_bytes = _gradient_png(width=200, height=200)
+
+    class _SpyDetector:
+        @staticmethod
+        def create(model_path, config, size):
+            if "nonexistent" in model_path:
+                raise RuntimeError("model not found")
+            return _SpyDetector()
+
+        def setInputSize(self, size):
+            pass
+
+        def detect(self, image):
+            return None, None
+
+    monkeypatch.setattr(cv2, "FaceDetectorYN", _SpyDetector)
+    monkeypatch.setattr(faces, "_MODEL_PATH", str(tmp_path / "nonexistent.onnx"))
+
+    assert faces.detect_face_boxes(image_bytes) == []
 
 
 def test_detect_face_boxes_blank_image_returns_empty():
-    # Real cascade, deterministic: a uniform image contains no faces.
+    # Real YuNet on a blank image — no faces should be detected.
     blank = np.full((200, 200, 3), 200, np.uint8)
     ok, buf = cv2.imencode(".png", blank)
     assert ok

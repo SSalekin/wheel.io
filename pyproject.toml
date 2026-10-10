@@ -13,9 +13,8 @@ dependencies = [
     "jinja2",
     "python-multipart",
     "pytesseract",
-    # OpenCV 5 removed CascadeClassifier and the haarcascade assets
-    # (brief: detection uses cv2.data.haarcascades) — stay on 4.x.
-    "opencv-python<5",
+    # YuNet face detection requires OpenCV 4.4+ (DNN module).
+    "opencv-python>=4.4",
     "numpy",
     "pillow",
     "httpx",

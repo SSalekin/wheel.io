@@ -37,6 +37,7 @@
     </main>
 
     <footer class="chat-bar">
+      <div id="file-preview" class="file-preview"></div>
       <form id="chat-form" class="chat-form"
             hx-post="/chat"
             hx-target="#chat-log"
@@ -46,7 +47,7 @@
         <input type="hidden" name="token" value="{{ session.token }}">
         <label class="attach-button" title="Attach images">
           <span aria-hidden="true">&#128206;</span>
-          <input type="file" name="files" multiple accept="image/png,image/jpeg,image/webp">
+          <input type="file" name="files" id="file-input" multiple accept="image/png,image/jpeg,image/webp">
         </label>
         <input type="text" name="message" class="chat-input"
                placeholder="type a message…" autocomplete="off">

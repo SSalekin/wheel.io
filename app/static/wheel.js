@@ -216,4 +216,44 @@
 
   var initial = document.getElementById("wheel-data");
   if (initial) WheelIO.render(parseEntries(initial.dataset.entries));
+
+  /* File preview thumbnails in the chat bar */
+  (function () {
+    var fileInput = document.getElementById("file-input");
+    var previewContainer = document.getElementById("file-preview");
+    if (!fileInput || !previewContainer) return;
+
+    fileInput.addEventListener("change", function () {
+      previewContainer.innerHTML = "";
+      var files = Array.prototype.slice.call(fileInput.files);
+      files.forEach(function (file, index) {
+        if (!file.type.startsWith("image/")) return;
+        var url = URL.createObjectURL(file);
+        var item = document.createElement("div");
+        item.className = "file-preview-item";
+        var img = document.createElement("img");
+        img.src = url;
+        img.alt = file.name;
+        var removeBtn = document.createElement("button");
+        removeBtn.className = "file-preview-remove";
+        removeBtn.innerHTML = "&times;";
+        removeBtn.title = "Remove";
+        removeBtn.addEventListener("click", function () {
+          var dt = new DataTransfer();
+          var remaining = Array.prototype.slice.call(fileInput.files).filter(function (_, i) { return i !== index; });
+          remaining.forEach(function (f) { dt.items.add(f); });
+          fileInput.files = dt.files;
+          item.remove();
+          if (!previewContainer.children.length) previewContainer.innerHTML = "";
+        });
+        item.appendChild(img);
+        item.appendChild(removeBtn);
+        previewContainer.appendChild(item);
+      });
+    });
+
+    document.getElementById("chat-form").addEventListener("submit", function () {
+      previewContainer.innerHTML = "";
+    });
+  })();
 })();
