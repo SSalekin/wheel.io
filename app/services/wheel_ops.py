@@ -159,6 +159,5 @@ def reset(session: WheelSession) -> None:
     """Clear the wheel and everything derived from it (spec §8)."""
     session.entries = []
     session.picked = []
-    session.warnings = []
     session.source_table = None
     session.media = {}

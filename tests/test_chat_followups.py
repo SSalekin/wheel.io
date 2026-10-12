@@ -165,7 +165,6 @@ def test_chat_reset_flow(client):
     _seed_wheel(client, token)
     session = app.state.store.get(token)
     session.picked = [Entry(id="p0", label="Chi")]
-    session.warnings = ["⚠️ stale note"]
     session.media = {"crop": b"png-bytes"}
     session.source_table = Table(
         columns=[TableColumn(header="id", values=["A1"])], confidence=95.0
@@ -180,7 +179,6 @@ def test_chat_reset_flow(client):
     session = app.state.store.get(token)
     assert session.entries == []
     assert session.picked == []
-    assert session.warnings == []
     assert session.source_table is None
     assert session.media == {}
 

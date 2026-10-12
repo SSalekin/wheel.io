@@ -34,7 +34,7 @@ Sys:  │ 🎉 wheel ready (4 entries)      ◂  │   │      │ segments │
 - System **Tesseract ≥ 5** with English data:
   - Ubuntu/Debian: `sudo apt-get install -y tesseract-ocr tesseract-ocr-eng`
   - macOS: `brew install tesseract`
-- A **Gemini API key** — *optional*. Without it (or on timeout/error) Wheelio degrades gracefully: simple messages are handled by local rules anyway, with a `⚠️ AI unreachable — best-guess parsing.` note.
+- A **Gemini API key** — *optional*. Without it (or on timeout/error) Wheelio degrades gracefully: local rules handle simple messages silently, and when the AI was needed the reply carries a `⚠️ AI unreachable — best-guess parsing.` note.
 
 ## Setup
 
@@ -70,7 +70,7 @@ Every message becomes one of nine intents (`create_text`, `create_image`, `creat
 2. **Gemini Flash for the tricky cases** — unmatched messages go to the model with a compact state summary; it returns the same validated intent shape, so there's one downstream code path either way.
 3. **Always degrade, never crash** — model timeout, bad JSON, or missing key falls back to the strongest rule-like guess plus the ⚠️ note; unexpected errors become a friendly `Something went wrong.` bubble with the traceback in the server log.
 
-Images: uploads (png/jpeg/webp ≤ 10 MB) run through local **Tesseract OCR** → line/column layout reconstruction → column selection (header keywords → Gemini if ambiguous). If the reading itself is unreliable (mean confidence < 60), the image escalates to Gemini vision. Face photos go through an **OpenCV Haar cascade** (`haarcascade_frontalface_default`, bundled with `opencv-python` — zero setup).
+Images: uploads (png/jpeg/webp ≤ 10 MB each, up to 20 files) run through local **Tesseract OCR** → line/column layout reconstruction → column selection (header keywords → Gemini if ambiguous). If the reading itself is unreliable (mean confidence < 60), the image escalates to Gemini vision. Face photos go through **OpenCV YuNet** (`face_detection_yunet.onnx`, bundled in `app/models/` — zero setup).
 
 State lives in memory, keyed by a per-page token: **refreshing the page starts over** — no database, no localStorage.
 
@@ -80,7 +80,7 @@ State lives in memory, keyed by a per-page token: **refreshing the page starts o
 pytest -v
 ```
 
-116 tests: intent rules, OCR integration against real Tesseract, face-detection wiring, column selection, spin/state semantics, and end-to-end chat flows (the Gemini HTTP boundary is mocked with `respx`).
+171 tests: intent rules, OCR integration against real Tesseract, face-detection wiring, column selection, spin/state semantics, and end-to-end chat flows (the Gemini HTTP boundary is mocked with `respx`).
 
 ## Project structure
 
@@ -89,8 +89,9 @@ app/
 ├── main.py           # app factory, exception handlers, session TTL sweep
 ├── controllers/      # chat, spin, toggle, wheel, media routes
 ├── services/         # rules, intent_router, gemini, ocr, column_picker,
-│                     # faces, images, wheel_ops, errors
+│                     # faces, images, mime, wheel_ops, errors
 ├── models/           # Entry, WheelSession, Intent, Table (pydantic)
+│                     # + face_detection_yunet.onnx (YuNet model asset)
 ├── state/            # InMemoryStateStore (TTL-expired sessions)
 ├── views/            # base.html + HTMX partials
 └── static/           # htmx.min.js (vendored), wheel.js, styles.css

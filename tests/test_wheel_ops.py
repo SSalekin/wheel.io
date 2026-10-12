@@ -161,7 +161,6 @@ def test_switch_replaces_entries_and_clears_picked():
 def test_reset_clears_everything():
     session = _session(["Ana"])
     session.picked = [Entry(id="p0", label="Chi")]
-    session.warnings = ["⚠️ stale note"]
     session.source_table = _table()
     session.media = {"crop": b"png-bytes"}
 
@@ -169,7 +168,6 @@ def test_reset_clears_everything():
 
     assert session.entries == []
     assert session.picked == []
-    assert session.warnings == []
     assert session.source_table is None
     assert session.media == {}
 

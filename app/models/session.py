@@ -11,5 +11,4 @@ class WheelSession(BaseModel):
     picked: list[Entry] = []
     remove_picked: bool = False
     source_table: Table | None = None
-    warnings: list[str] = []
     media: dict[str, bytes] = {}

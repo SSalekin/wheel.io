@@ -165,7 +165,7 @@ def _faces_branch(
     session: WheelSession,
     boxes: list[tuple[int, int, int, int]] | None = None,
 ) -> ImageResult:
-    """Faces path (spec §7): Haar boxes → crops in ``session.media``.
+    """Faces path (spec §7): YuNet boxes → crops in ``session.media``.
 
     Zero detections escalate exactly like the text path's unreliable
     reading: Gemini vision labels the image as plain entries, and a dead

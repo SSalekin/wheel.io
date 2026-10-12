@@ -48,7 +48,6 @@ def test_wheel_session_defaults():
     assert session.picked == []
     assert session.remove_picked is False
     assert session.source_table is None
-    assert session.warnings == []
     assert session.media == {}
 
     # Mutable defaults must not be shared between instances.

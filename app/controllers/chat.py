@@ -161,7 +161,6 @@ def chat(
             # new entries); the replaced wheel carries its table, if any.
             wheel_ops.replace_entries(session, result.entries)
             session.source_table = result.table
-            session.warnings.extend(result.warnings)
 
             html = bubble(request, "user", message)
             html += warning_html
