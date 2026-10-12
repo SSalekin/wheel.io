@@ -1,18 +1,14 @@
-/* Wheelio — one hand-written stylesheet; no framework, no build step.
- * Dark-slate theme modeled on lecturer_wheel_picker_sample.html:
- * slate-900 radial background, slate-800 panels, sky→indigo→purple
- * gradients, vibrant wheel. */
+/* Wheelio — one hand-written stylesheet; no framework, no build step. */
 
 :root {
-  --bg: #0f172a;
-  --panel: #1e293b;
-  --border: #334155;
-  --text: #f8fafc;
-  --muted: #94a3b8;
-  --accent: #6366f1;
-  --accent-glow: rgba(99, 102, 241, 0.5);
-  --bubble-user: #312e81;
-  --bubble-system: #0f172a;
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --border: #d9dce3;
+  --text: #1f2430;
+  --muted: #6b7280;
+  --accent: #4f46e5;
+  --bubble-user: #e0e7ff;
+  --bubble-system: #f1f3f6;
   --radius: 10px;
 }
 
@@ -27,8 +23,8 @@ body {
 
 body {
   margin: 0;
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: radial-gradient(circle at 50% 50%, #1e293b 0%, #0f172a 100%);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
   color: var(--text);
 }
 
@@ -42,16 +38,13 @@ body {
 
 .app-header {
   padding: 10px 16px;
+  background: linear-gradient(135deg, var(--accent), #6d5df6);
+  color: #ffffff;
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 900;
-  background: linear-gradient(to right, #38bdf8, #c084fc);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font-size: 18px;
 }
 
 /* Three-pane grid: chat | wheel | picked */
@@ -75,7 +68,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .pane-title {
@@ -115,7 +108,7 @@ body {
 .bubble.system {
   align-self: flex-start;
   background: var(--bubble-system);
-  border-left: 3px solid #38bdf8;
+  border-left: 3px solid var(--accent);
   animation: slideIn 0.25s ease-out;
 }
 
@@ -139,11 +132,9 @@ body {
 .banner {
   min-height: 1.5em;
   margin-bottom: 8px;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 20px;
+  font-weight: 600;
   text-align: center;
-  color: #ffffff;
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
 }
 
 #wheel-pane {
@@ -154,29 +145,19 @@ body {
   width: 100%;
 }
 
-/* The sample's signature gradient ring: sky → indigo → purple around
-   the wheel, with a deep dark glow. Display size is pinned here,
-   independent of the HiDPI backing store wheel.js writes (canvas.width
-   = 480 × devicePixelRatio): the ring is 500 logical px (480 canvas +
-   2 × 10px padding), shrinking to the column width and to the
-   vertical room left by the shell's fixed chrome (header, banner, Go
-   form, chat bar, paddings ≈ 240px). aspect-ratio keeps it square at
-   every clamp — strict single-page, no shrink floor. */
-.wheel-ring {
-  position: relative;
-  width: min(500px, 100%, calc(100vh - 240px));
-  aspect-ratio: 1;
-  padding: 10px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5),
-    0 10px 10px -5px rgba(0, 0, 0, 0.3);
-}
-
+/* Display size is pinned in CSS, independent of the HiDPI backing
+   store wheel.js writes (canvas.width = 480 × devicePixelRatio, whose
+   960px intrinsic size used to inflate the on-screen wheel and push
+   the app shell into page scroll): always 480 logical px, shrinking to
+   the column width and to the vertical room left by the shell's fixed
+   chrome (header, banner, Go form, chat bar, paddings ≈ 260px).
+   aspect-ratio keeps it square at every clamp — strict single-page,
+   no shrink floor. */
 #wheel {
-  display: block;
-  width: 100%;
-  height: 100%;
+  width: min(480px, 100%, calc(100vh - 260px));
+  height: auto;
+  aspect-ratio: 1;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12));
 }
 
 .empty-hint {
@@ -198,23 +179,17 @@ body {
 .go-button {
   padding: 10px 42px;
   font-size: 16px;
-  font-weight: 700;
   border: none;
-  border-radius: 999px;
-  background: linear-gradient(to right, #0ea5e9, var(--accent));
+  border-radius: var(--radius);
+  background: var(--accent);
   color: #ffffff;
   cursor: pointer;
-  box-shadow: 0 0 20px var(--accent-glow);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .go-button:hover:not(:disabled) {
   transform: scale(1.05);
-  box-shadow: 0 0 30px rgba(99, 102, 241, 0.7);
-}
-
-.go-button:active:not(:disabled) {
-  transform: scale(0.95);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
 }
 
 .remove-picked-label {
@@ -227,13 +202,17 @@ body {
 
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid #38bdf8;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+button:disabled:hover {
+  background: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -298,12 +277,6 @@ button:disabled {
   font-size: 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--text);
-}
-
-.chat-input::placeholder {
-  color: var(--muted);
 }
 
 .attach-button {
@@ -319,8 +292,8 @@ button:disabled {
   padding: 10px 16px;
   font-size: 16px;
   border: none;
-  border-radius: 999px;
-  background: linear-gradient(to right, #0ea5e9, var(--accent));
+  border-radius: var(--radius);
+  background: var(--accent);
   color: #ffffff;
   cursor: pointer;
 }

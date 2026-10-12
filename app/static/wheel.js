@@ -21,11 +21,9 @@
     window.htmx.config.attributesToSettle = ["class", "style"];
   }
 
-  /* Vibrant slice palette from lecturer_wheel_picker_sample.html —
-   * saturated red → purple that pops against the dark-slate theme. */
   var PALETTE = [
-    "#ef4444", "#f97316", "#eab308", "#22c55e",
-    "#06b6d4", "#3b82f6", "#a855f7"
+    "#ffd9d9", "#ffe6cc", "#fff3cc", "#ddf5d5",
+    "#d2f0e4", "#d3ecfb", "#ddd8ff", "#f4d9ff"
   ];
   var LABEL_MAX = 18;   // draw-time truncation only; the data stays intact
   var TURNS = 5;        // extra full turns per spin
@@ -155,7 +153,7 @@
     if (!n) {
       ctx.beginPath();
       ctx.arc(cx, cy, radius - 1, 0, TAU);
-      ctx.strokeStyle = "#334155";
+      ctx.strokeStyle = "#d9dce3";
       ctx.setLineDash([6, 6]);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -172,7 +170,6 @@
       ctx.fillStyle = PALETTE[i % PALETTE.length];
       ctx.fill();
       ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 3;  // bold white dividers between slices, per the sample
       ctx.stroke();
     }
 
@@ -194,26 +191,26 @@
       ctx.arc(cx, cy, radius, winningIndex * delta + rotation - HALF_PI,
               (winningIndex + 1) * delta + rotation - HALF_PI);
       ctx.closePath();
-      ctx.fillStyle = "rgba(99, 102, 241, 0.25)";
+      ctx.fillStyle = "rgba(79, 70, 229, 0.25)";
       ctx.fill();
-      ctx.strokeStyle = "#818cf8";
+      ctx.strokeStyle = "#4f46e5";
       ctx.lineWidth = 3;
-      ctx.shadowColor = "rgba(99, 102, 241, 0.6)";
+      ctx.shadowColor = "rgba(79, 70, 229, 0.6)";
       ctx.shadowBlur = 12;
       ctx.stroke();
       ctx.restore();
     }
 
-    // Center hub — white circle with a thick slate ring, per the sample
+    // Center hub
     ctx.beginPath();
-    ctx.arc(cx, cy, 32, 0, TAU);
-    ctx.fillStyle = "#f8fafc";
-    ctx.shadowColor = "rgba(0,0,0,0.3)";
+    ctx.arc(cx, cy, 28, 0, TAU);
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(0,0,0,0.15)";
     ctx.shadowBlur = 6;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "#1e293b";
-    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 2;
     ctx.stroke();
 
     // Pointer at top
@@ -222,18 +219,22 @@
     ctx.lineTo(cx - 10, 28);
     ctx.lineTo(cx + 10, 28);
     ctx.closePath();
-    ctx.fillStyle = "#f8fafc";
-    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.fillStyle = "#ef4444";
+    ctx.shadowColor = "rgba(0,0,0,0.2)";
     ctx.shadowBlur = 4;
     ctx.fill();
     ctx.shadowBlur = 0;
 
+    ctx.fillStyle = "#1f2430";
     // Font scales with the room the segment gives (arc length at the
     // label radius): crowded wheels shrink labels instead of overlapping.
     var fontPx = Math.max(8, Math.min(13, delta * radius * 0.2));
-    ctx.font = "700 " + fontPx + "px Inter, system-ui, sans-serif";
+    ctx.font = "600 " + fontPx + "px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
     for (i = 0; i < n; i++) {
       // Skip the label when a photo was drawn — the face crop is enough.
       if (photoDrawn[i]) continue;
@@ -245,13 +246,8 @@
       ctx.translate(cx, cy);
       ctx.rotate(mid - HALF_PI);
       if (flipped) ctx.rotate(Math.PI);
-      // White labels with a dark shadow, per the sample: readable on
-      // every vibrant slice and over photos.
-      ctx.fillStyle = "#ffffff";
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetX = 1;
-      ctx.shadowOffsetY = 1;
+      // Halo keeps the label readable when a photo fills the segment.
+      ctx.strokeText(text, px, 0);
       ctx.fillText(text, px, 0);
       ctx.restore();
     }
@@ -348,7 +344,7 @@
   /* Simple confetti burst — repeated bursts extend the running loop
    * instead of stacking a second one. */
   function launchConfetti() {
-    var colors = ["#6366f1", "#38bdf8", "#ef4444", "#22c55e", "#eab308", "#a855f7", "#ffffff"];
+    var colors = ["#4f46e5", "#ffd9d9", "#ffe6cc", "#ddf5d5", "#d3ecfb", "#f4d9ff"];
     for (var i = 0; i < 40; i++) {
       confetti.push({
         x: wheelSize / 2,
