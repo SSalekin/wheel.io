@@ -193,9 +193,12 @@
   }
 
   window.WheelIO = {
-    /* Draw the given {label, image_url} entries at the current rotation. */
-    render: function (next) {
+    /* Draw the given {label, image_url} entries at the current rotation.
+     * `glow` (an index or null) marks the winning segment in these
+     * entries; omitting it clears any previous glow. */
+    render: function (next, glow) {
       entries = Array.isArray(next) ? next : [];
+      winningIndex = glow === undefined ? null : glow;
       // Wait a frame so the swapped canvas is in the DOM before drawing.
       requestAnimationFrame(function () {
         draw();
@@ -234,7 +237,6 @@
           return;
         }
         rotation = normalize(target);
-        winningIndex = index;
         draw();
         launchConfetti();
         if (goBtn) {
@@ -314,16 +316,26 @@
   /* After any htmx swap, re-read #wheel-data (inside the swapped
      #wheel-pane): spin when the server says it picked a winner, otherwise
      just redraw. Never computes a winner itself. */
+  var lastDataNode = null;
   document.addEventListener("htmx:afterSwap", function (event) {
     var wheelData = document.getElementById("wheel-data");
-    if (!wheelData) return;
+    if (!wheelData || wheelData === lastDataNode) return;
+    lastDataNode = wheelData;
     var data = wheelData.dataset;
     var next = parseEntries(data.entries);
     if (data.animate === "1") {
       wheelData.removeAttribute("data-animate");  // consume; one spin per swap
       var index = parseInt(data.preIndex, 10);
+      // The server spun the entries it shipped as data-spin-entries; the
+      // pointer must land on the winner even when remove_picked already
+      // popped it from the shipped wheel.
+      var spinEntries = data.spinEntries ? parseEntries(data.spinEntries) : next;
+      var glow =
+        data.glowIndex === undefined ? null : parseInt(data.glowIndex, 10);
+      WheelIO.render(spinEntries);
       WheelIO.spinTo(isNaN(index) ? 0 : index, function () {
-        WheelIO.render(next);
+        // The final entries land only once the wheel stops, glow included.
+        WheelIO.render(next, isNaN(glow) ? null : glow);
         refreshPicked();  // winner lands in the sidebar only when the wheel stops
       });
     } else {
@@ -332,7 +344,10 @@
   });
 
   var initial = document.getElementById("wheel-data");
-  if (initial) WheelIO.render(parseEntries(initial.dataset.entries));
+  if (initial) {
+    lastDataNode = initial;
+    WheelIO.render(parseEntries(initial.dataset.entries));
+  }
 
   /* File preview thumbnails in the chat bar */
   (function () {

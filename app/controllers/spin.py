@@ -57,11 +57,20 @@ def spin(request: Request, token: str = Form(...)) -> HTMLResponse:
     if not session.entries:
         return _empty_wheel_response(request, session)
 
+    # Snapshot the wheel BEFORE the spin: with remove_picked on, the winner
+    # is popped by the time we render, and the animation must still be able
+    # to land on it (audit fix — same contract as the chat-spin path).
+    spin_snapshot = wheel_ops.wheel_data(session)
     result = wheel_ops.spin(session)
     if result is None:  # entries were non-empty above; guard against races
         return _empty_wheel_response(request, session)
     winner, pre_spin_index = result
 
+    # The glow marks the winner in the SHIPPED wheel — only when the winner
+    # still has a segment there.
+    glow_index = (
+        pre_spin_index if any(e is winner for e in session.entries) else None
+    )
     html = render_partial(request, "partials/banner.html", {"label": winner.label})
     html += render_partial(
         request,
@@ -70,6 +79,8 @@ def spin(request: Request, token: str = Form(...)) -> HTMLResponse:
             "wheel_data": wheel_ops.wheel_data(session),
             "animate": True,
             "pre_index": pre_spin_index,
+            "spin_data": spin_snapshot,
+            "glow_index": glow_index,
         },
     )
     html += render_partial(

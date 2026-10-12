@@ -1,6 +1,6 @@
 <div id="wheel-pane" hx-swap-oob="true">
   <canvas id="wheel" width="480" height="480"></canvas>
-  <div id="wheel-data" {% if wheel_data %}data-entries='{{ wheel_data | tojson }}'{% else %}data-entries="[]"{% endif %}{% if animate %} data-animate="1" data-pre-index="{{ pre_index }}"{% endif %}></div>
+  <div id="wheel-data" {% if wheel_data %}data-entries='{{ wheel_data | tojson }}'{% else %}data-entries="[]"{% endif %}{% if spin_data %} data-spin-entries='{{ spin_data | tojson }}'{% endif %}{% if glow_index is not none %} data-glow-index="{{ glow_index }}"{% endif %}{% if animate %} data-animate="1" data-pre-index="{{ pre_index }}"{% endif %}></div>
   {%- if not wheel_data %}
   <p class="empty-hint">type a list or upload an image</p>
   {%- endif %}

@@ -44,6 +44,8 @@ def _wheel_regions(
     *,
     animate: bool = False,
     pre_index: int | None = None,
+    spin_snapshot: list[dict] | None = None,
+    glow_index: int | None = None,
 ) -> str:
     """The regions that drift after any change to entries or picks.
 
@@ -53,6 +55,14 @@ def _wheel_regions(
     happened (chat-spin, same shape as POST /spin). An animated response
     omits the picked sidebar: wheel.js fetches GET /picked when the spin
     ends, so the winner lands in the sidebar only once the wheel stops.
+
+    The animated pane ships three consistent pieces (audit fix):
+    ``spin_snapshot`` — the entries as the spin STARTED (the client animates
+    against these, so the pointer lands on the winner even when
+    remove_picked has already popped it), ``pre_index`` — the winner's
+    index into that snapshot — and ``glow_index``, the winner's index into
+    the SHIPPED entries, present only when the winner is still on the
+    wheel. A removed winner has no segment left to glow.
     """
     html = render_partial(
         request,
@@ -61,6 +71,8 @@ def _wheel_regions(
             "wheel_data": wheel_ops.wheel_data(session),
             "animate": animate,
             "pre_index": pre_index,
+            "spin_data": spin_snapshot or [],
+            "glow_index": glow_index,
         },
     )
     if not animate:
@@ -206,6 +218,10 @@ def chat(
         return HTMLResponse(html)
 
     if intent.action == "spin":
+        # Snapshot the wheel BEFORE the spin: with remove_picked on, the
+        # winner is popped by the time we render, and the animation must
+        # still be able to land on it.
+        spin_snapshot = wheel_ops.wheel_data(session)
         result = wheel_ops.spin(session)
         html = bubble(request, "user", message)
         html += warning_html
@@ -214,6 +230,11 @@ def chat(
             return HTMLResponse(html + bubble(request, "system", EMPTY_WHEEL))
         winner, pre_spin_index = result
 
+        # The glow marks the winner in the SHIPPED wheel — only when the
+        # winner still has a segment there.
+        glow_index = (
+            pre_spin_index if any(e is winner for e in session.entries) else None
+        )
         html += bubble(request, "system", f"🎉 {winner.label}")
         # Chat responses land in #chat-log, so the #banner region swaps out
         # of band — the banner partial is the region's content.
@@ -223,7 +244,12 @@ def chat(
             + "</div>"
         )
         html += _wheel_regions(
-            request, session, animate=True, pre_index=pre_spin_index
+            request,
+            session,
+            animate=True,
+            pre_index=pre_spin_index,
+            spin_snapshot=spin_snapshot,
+            glow_index=glow_index,
         )
         return HTMLResponse(html)
 

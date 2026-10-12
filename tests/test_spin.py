@@ -1,6 +1,8 @@
+import json
 import re
 
 from app.main import app
+from app.models import Entry
 
 SESSION_EXPIRED = "Session expired — refresh the page to start over."
 EMPTY_WHEEL = "The wheel is empty — add some entries first."
@@ -22,6 +24,68 @@ def _token_with_entries(client) -> str:
     )
     assert response.status_code == 200
     return token
+
+
+def _seed(client, labels, remove_picked) -> str:
+    """Fresh page token with a deterministic session state."""
+    token, _ = _page(client)
+    session = app.state.store.get(token)
+    assert session is not None
+    session.entries = [Entry(id=f"e{i}", label=label) for i, label in enumerate(labels)]
+    session.remove_picked = remove_picked
+    return token
+
+
+def _wheel_data_attrs(html: str) -> dict[str, str]:
+    node = re.search(r'<div id="wheel-data"([^>]*)>', html)
+    assert node, "response must ship the #wheel-data node"
+    # Values may be quoted with either delimiter (tojson escapes ' as \u0027,
+    # so a single-quoted JSON attribute contains no raw ').
+    return {
+        name: value
+        for name, _quote, value in re.findall(
+            r'''(data-[\w-]+)=(['"])(.*?)\2''', node.group(1)
+        )
+    }
+
+
+def test_chat_spin_with_removal_ships_pre_removal_snapshot(client):
+    # Audit #2: the animated entries, the shipped index, and the glow must
+    # all agree; a removed winner cannot be pointed at in the new wheel.
+    token = _seed(client, ["Ana"], remove_picked=True)
+
+    response = client.post("/chat", data={"token": token, "message": "spin"})
+
+    attrs = _wheel_data_attrs(response.text)
+    # The snapshot the client animates still contains the winner…
+    assert "Ana" in attrs["data-spin-entries"]
+    assert attrs["data-pre-index"] == "0"
+    # …while the shipped (post-removal) wheel is empty…
+    assert json.loads(attrs["data-entries"]) == []
+    # …and there is no glow: the winner is no longer on the wheel.
+    assert "data-glow-index" not in attrs
+
+
+def test_spin_endpoint_with_removal_ships_pre_removal_snapshot(client):
+    token = _seed(client, ["Ana"], remove_picked=True)
+
+    response = client.post("/spin", data={"token": token})
+
+    attrs = _wheel_data_attrs(response.text)
+    assert "Ana" in attrs["data-spin-entries"]
+    assert "data-glow-index" not in attrs
+
+
+def test_spin_without_removal_glows_the_winner(client):
+    token = _seed(client, ["Ana", "Bob"], remove_picked=False)
+
+    response = client.post("/spin", data={"token": token})
+
+    attrs = _wheel_data_attrs(response.text)
+    # Nothing removed: the snapshot is the shipped wheel, and the glow is
+    # the index the animation lands on.
+    assert json.loads(attrs["data-spin-entries"]) == json.loads(attrs["data-entries"])
+    assert attrs["data-glow-index"] == attrs["data-pre-index"]
 
 
 def test_spin_endpoint_updates_banner_and_wheel(client):
