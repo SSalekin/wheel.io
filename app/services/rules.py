@@ -41,6 +41,27 @@ _STRUCTURAL_TOKENS = frozenset(
      "names", "name", "students", "student", "entries", "items"}
 )
 
+# Verb-class instruction tokens. Once a structural token has flagged the
+# leading run as instruction language, one of these ENDS the run: it is
+# the start of an entry whose own name carries an instruction word
+# ("make a wheel with Pick Me" keeps "Pick Me"; "…with Random Guy" keeps
+# "Random Guy" whole). Verbs *before* the structural token are ordinary
+# instruction language ("pick a random name from …").
+_VERB_TOKENS = frozenset(
+    {"wheel", "make", "create", "build", "pick", "choose", "random", "generate"}
+)
+
+# Articles/filler that may appear inside an instruction phrase. After a
+# connective they survive only when they head into the instruction's
+# object: "with the names" keeps going, "with The Rock" ends the run
+# before "The".
+_ARTICLE_TOKENS = frozenset(
+    {"the", "a", "an", "this", "these", "those", "my", "your", "our", "me"}
+)
+_OBJECT_TOKENS = frozenset(
+    {"names", "name", "students", "student", "entries", "items", "list"}
+)
+
 _COLON_RE = re.compile(r"[:：]")
 _LEADING_MARKER_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s*")
 
@@ -131,16 +152,35 @@ def _strip_instruction_prefix(segment: str) -> str:
     Ana" becomes "Ana"; a lone glued verb ("wheel Ana", "Random Guy",
     "Pick Me") is ambiguous and stays whole — a visible wrong entry
     beats an invisible missing one.
+
+    After a connective the run stops at the first verb-class token (an
+    entry's own name starts there: "with Pick Me", "with Random Guy")
+    and at an article not leading into the instruction's object ("with
+    The Rock"). The trade: adjectival "random" after a connective
+    ("with random names") stays with its entry rather than being
+    stripped.
     """
     words = segment.split()
     run = 0
     structural = False
-    for word in words:
-        if not _INSTRUCTION_TOKEN_RE.fullmatch(word):
-            break
-        if word.lower() in _STRUCTURAL_TOKENS:
+    i = 0
+    while i < len(words):
+        if not _INSTRUCTION_TOKEN_RE.fullmatch(words[i]):
+            break  # content starts here
+        token = words[i].lower()
+        if structural:
+            if token in _VERB_TOKENS:
+                break  # the entry's own instruction word
+            if token in _ARTICLE_TOKENS:
+                if i + 1 < len(words) and words[i + 1].lower() in _OBJECT_TOKENS:
+                    i += 2  # article + the instruction's object
+                    run = i
+                    continue
+                break  # article straying into an entry ("with The Rock")
+        if token in _STRUCTURAL_TOKENS:
             structural = True
-        run += 1
+        i += 1
+        run = i
     if not structural:
         return segment
     return " ".join(words[run:]).strip()

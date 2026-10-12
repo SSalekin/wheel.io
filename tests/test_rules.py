@@ -46,6 +46,27 @@ def test_parse_keeps_glued_verb_prefix():
     assert parse_items("wheel Ana, Bob, Chi") == ["wheel Ana", "Bob", "Chi"]
 
 
+def test_parse_keeps_entry_after_connective_verb():
+    # Regression (audit #1): the instruction-prefix strip used to keep
+    # consuming words after the connective, eating the entry's own verb:
+    # "make a wheel with Pick Me, Ana" lost "Pick Me" entirely.
+    assert parse_items("make a wheel with Pick Me, Ana") == ["Pick Me", "Ana"]
+
+
+def test_parse_keeps_entry_starting_with_instruction_word():
+    # Same regression with a mid-phrase entry: "Random Guy" must not
+    # collapse to "Guy" just because "random" is an instruction token.
+    assert parse_items("make a wheel with Random Guy, Pick Me") == [
+        "Random Guy",
+        "Pick Me",
+    ]
+
+
+def test_parse_keeps_the_rock_after_connective():
+    # "The" is filler and may stay in the run; the entry must not.
+    assert parse_items("make a wheel with The Rock, Ana") == ["The Rock", "Ana"]
+
+
 def test_parse_keeps_instruction_word_only_entry():
     assert parse_items("wheel: Pick Me, Ana") == ["Pick Me", "Ana"]
 
