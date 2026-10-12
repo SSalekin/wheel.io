@@ -59,7 +59,7 @@ Open http://127.0.0.1:8000 and start chatting.
 | Variable | Default | Purpose |
 |---|---|---|
 | `GEMINI_API_KEY` | *(unset)* | Enables AI-assisted parsing (ambiguous messages, low-confidence OCR, vision fallback) |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model id |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model id |
 | `GEMINI_TIMEOUT_S` | `10` | Per-request timeout before degrading to rules |
 
 ## How it works

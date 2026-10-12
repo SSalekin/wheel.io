@@ -19,7 +19,7 @@ from app.services import images
 
 API_URL = (
     "https://generativelanguage.googleapis.com/v1beta"
-    "/models/gemini-2.5-flash:generateContent"
+    "/models/gemini-3.5-flash-lite:generateContent"
 )
 
 # Byte-exact copy of wheel_ops._NO_TABLE_WARNING.

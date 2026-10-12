@@ -9,6 +9,7 @@ timeouts, non-200s, unparseable or invalid replies — surface as
 import base64
 import json
 import os
+from typing import get_args
 
 import httpx
 from pydantic import ValidationError
@@ -17,10 +18,35 @@ from app.models import Intent, Table
 from app.services.mime import detect_mime
 
 _API_BASE = "https://generativelanguage.googleapis.com/v1beta"
-_DEFAULT_MODEL = "gemini-2.5-flash"
+# gemini-2.5-flash is retired for new API keys (HTTP 404: "no longer
+# available to new users"). gemini-3.8-flash is the API's suggested
+# successor but flaked live (read-timeout, 503) at decision time;
+# 3.5-flash-lite answered schema-constrained calls in ~1s, so it ships.
+_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 _DEFAULT_TIMEOUT_S = 10.0
 # State-summary labels beyond this are dropped from the prompt.
 _MAX_STATE_ENTRIES = 50
+
+# Wire-level responseSchema per call shape. responseMimeType alone only
+# promises *some* JSON — a chatty reply like [{"response": "hi"}] parses
+# and then fails model validation, surfacing as "AI unreachable".
+# The action enum is single-sourced from the Intent model's Literal.
+_INTENT_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "action": {
+            "type": "STRING",
+            "enum": list(get_args(Intent.model_fields["action"].annotation)),
+        },
+        "entries": {"type": "ARRAY", "items": {"type": "STRING"}, "nullable": True},
+        "labels": {"type": "ARRAY", "items": {"type": "STRING"}, "nullable": True},
+        "column": {"type": "STRING", "nullable": True},
+        "question": {"type": "STRING", "nullable": True},
+    },
+    "required": ["action"],
+}
+_STRING_RESPONSE_SCHEMA = {"type": "STRING"}
+_STRING_LIST_RESPONSE_SCHEMA = {"type": "ARRAY", "items": {"type": "STRING"}}
 
 
 class GeminiError(Exception):
@@ -47,7 +73,7 @@ def ask_intent(message: str, state_summary: dict) -> Intent:
         "prose, no markdown fences:\n"
         f"{json.dumps(Intent.model_json_schema())}"
     )
-    raw = _generate([{"text": prompt}])
+    raw = _generate([{"text": prompt}], _INTENT_RESPONSE_SCHEMA)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -67,7 +93,7 @@ def ask_column(table: Table, message: str) -> str:
         'Respond with ONLY a JSON string containing exactly one of those '
         'headers, e.g. "Name" — no prose, no markdown fences.'
     )
-    raw = _generate([{"text": prompt}])
+    raw = _generate([{"text": prompt}], _STRING_RESPONSE_SCHEMA)
     try:
         header = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -93,7 +119,7 @@ def ask_vision(image: bytes, message: str) -> list[str]:
             'per item, e.g. ["Ana","Bob"] — no prose, no markdown fences.'
         )
     }
-    raw = _generate([image_part, prompt_part])
+    raw = _generate([image_part, prompt_part], _STRING_LIST_RESPONSE_SCHEMA)
     try:
         labels = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -107,8 +133,8 @@ def ask_vision(image: bytes, message: str) -> list[str]:
     return labels
 
 
-def _generate(parts: list[dict]) -> str:
-    """POST one JSON-mode ``generateContent`` request; return the candidate text."""
+def _generate(parts: list[dict], response_schema: dict) -> str:
+    """POST one schema-constrained ``generateContent`` request; return the candidate text."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise GeminiError("GEMINI_API_KEY is not set.")
@@ -119,7 +145,10 @@ def _generate(parts: list[dict]) -> str:
     model = os.environ.get("GEMINI_MODEL", _DEFAULT_MODEL)
     payload = {
         "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {"responseMimeType": "application/json"},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": response_schema,
+        },
     }
     try:
         response = httpx.post(

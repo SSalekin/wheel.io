@@ -12,7 +12,7 @@ from app.services.gemini import GeminiError, ask_column, ask_intent, ask_vision
 
 API_URL = (
     "https://generativelanguage.googleapis.com/v1beta"
-    "/models/gemini-2.5-flash:generateContent"
+    "/models/gemini-3.5-flash-lite:generateContent"
 )
 
 STATE_SUMMARY = {
@@ -205,3 +205,46 @@ def test_ask_intent_honors_model_override(monkeypatch):
     ask_intent("hello", dict(STATE_SUMMARY))
 
     assert route.called
+
+
+@respx.mock
+def test_ask_intent_payload_carries_response_schema():
+    # responseSchema (not responseMimeType alone) constrains replies to
+    # the Intent shape: schema-less JSON invites conversational drift
+    # that fails validation and surfaces as "AI unreachable".
+    respx.post(API_URL).respond(
+        200, json=_candidate_body('{"action":"clarify","question":"Which column?"}')
+    )
+
+    ask_intent("clarify: which column?", dict(STATE_SUMMARY))
+
+    schema = json.loads(respx.calls.last.request.content)["generationConfig"][
+        "responseSchema"
+    ]
+    assert schema["type"] == "OBJECT"
+    assert "clarify" in schema["properties"]["action"]["enum"]
+    assert schema["required"] == ["action"]
+
+
+@respx.mock
+def test_ask_column_payload_carries_response_schema():
+    respx.post(API_URL).respond(200, json=_candidate_body('"ID"'))
+
+    ask_column(_table(), "switch to the id one")
+
+    schema = json.loads(respx.calls.last.request.content)["generationConfig"][
+        "responseSchema"
+    ]
+    assert schema == {"type": "STRING"}
+
+
+@respx.mock
+def test_ask_vision_payload_carries_response_schema():
+    respx.post(API_URL).respond(200, json=_candidate_body('["Ana"]'))
+
+    ask_vision(b"fake-png-bytes", "names from this image")
+
+    schema = json.loads(respx.calls.last.request.content)["generationConfig"][
+        "responseSchema"
+    ]
+    assert schema == {"type": "ARRAY", "items": {"type": "STRING"}}

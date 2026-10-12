@@ -11,7 +11,7 @@ from app.services.intent_router import _degrade, interpret
 
 API_URL = (
     "https://generativelanguage.googleapis.com/v1beta"
-    "/models/gemini-2.5-flash:generateContent"
+    "/models/gemini-3.5-flash-lite:generateContent"
 )
 
 WARNING = "⚠️ AI unreachable — best-guess parsing."

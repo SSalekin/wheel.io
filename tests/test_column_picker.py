@@ -9,7 +9,7 @@ from app.services.column_picker import ColumnChoice, pick_column
 
 API_URL = (
     "https://generativelanguage.googleapis.com/v1beta"
-    "/models/gemini-2.5-flash:generateContent"
+    "/models/gemini-3.5-flash-lite:generateContent"
 )
 
 # Byte-exact copy of the brief's step-5 warning.
