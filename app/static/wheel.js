@@ -8,6 +8,19 @@
 
   var TAU = Math.PI * 2;
   var HALF_PI = Math.PI / 2;
+
+  /* htmx's settle phase re-applies [class, style, width, height]
+   * attributes ~20ms after every swap. Re-setting a canvas's width or
+   * height attribute — even to the same value — runs the canvas reset
+   * algorithm and wipes every painted pixel (the spec's
+   * `c.width = c.width` clear idiom), so the wheel was drawn by the
+   * afterSwap render and then erased by the settle, leaving a blank
+   * pane until the next spin repainted it. Nothing in this app
+   * animates those attributes, so drop them from the settle list. */
+  if (window.htmx && window.htmx.config) {
+    window.htmx.config.attributesToSettle = ["class", "style"];
+  }
+
   var PALETTE = [
     "#ffd9d9", "#ffe6cc", "#fff3cc", "#ddf5d5",
     "#d2f0e4", "#d3ecfb", "#ddd8ff", "#f4d9ff"
