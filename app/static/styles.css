@@ -55,6 +55,9 @@ body {
   gap: 12px;
   padding: 12px;
   min-height: 0;
+  /* App shell: nothing inside the panes may spawn a page scrollbar.
+     Chat log and picked list scroll internally. */
+  overflow: hidden;
 }
 
 .pane {
@@ -142,9 +145,18 @@ body {
   width: 100%;
 }
 
+/* Display size is pinned in CSS, independent of the HiDPI backing
+   store wheel.js writes (canvas.width = 480 × devicePixelRatio, whose
+   960px intrinsic size used to inflate the on-screen wheel and push
+   the app shell into page scroll): always 480 logical px, shrinking to
+   the column width and to the vertical room left by the shell's fixed
+   chrome (header, banner, Go form, chat bar, paddings ≈ 260px).
+   aspect-ratio keeps it square at every clamp — strict single-page,
+   no shrink floor. */
 #wheel {
-  max-width: 100%;
+  width: min(480px, 100%, calc(100vh - 260px));
   height: auto;
+  aspect-ratio: 1;
   filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12));
 }
 
