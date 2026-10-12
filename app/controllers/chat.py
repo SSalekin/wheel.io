@@ -10,31 +10,45 @@ from app.services import wheel_ops
 from app.services.errors import UserFacingError
 from app.services.images import process_multiple_images, process_single_image
 from app.services.intent_router import interpret
+from app.services.mime import is_supported_image
 
 router = APIRouter()
 
-# Upload contract (spec §7): png/jpeg/webp, at most 10 MB.
+# Upload contract (spec §7): png/jpeg/webp, at most 10 MB, at most 20 files.
 _ALLOWED_UPLOAD_TYPES = {"image/png", "image/jpeg", "image/webp"}
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+_MAX_UPLOAD_FILES = 20
+_UPLOAD_CHUNK_BYTES = 64 * 1024
 _UPLOAD_ERROR = "That file is too big / unsupported — png, jpeg, or webp up to 10 MB."
 
 
 def _read_validated(files: list[UploadFile]) -> list[bytes]:
-    """Read every upload, refusing unsupported types and oversizes.
+    """Read every upload in bounded chunks, refusing anything unsupported.
 
     Validation lives in the controller, before any dispatch (Task 10
     ruling); every refusal carries the exact copy so the bubble that
-    catches it is byte-stable.
+    catches it is byte-stable. The declared content-type is checked, and
+    so are the bytes themselves: an oversize body is refused one chunk
+    past the cap (never fully buffered), and a non-image declared
+    ``image/png`` is refused by magic-byte sniffing, not by its label.
     """
+    if len(files) > _MAX_UPLOAD_FILES:
+        raise UserFacingError(_UPLOAD_ERROR)
     payloads: list[bytes] = []
     for upload in files:
-        data = upload.file.read()
-        if (
-            upload.content_type not in _ALLOWED_UPLOAD_TYPES
-            or len(data) > _MAX_UPLOAD_BYTES
-        ):
+        if upload.content_type not in _ALLOWED_UPLOAD_TYPES:
             raise UserFacingError(_UPLOAD_ERROR)
-        payloads.append(data)
+        data = bytearray()
+        while True:
+            chunk = upload.file.read(_UPLOAD_CHUNK_BYTES)
+            if not chunk:
+                break
+            data += chunk
+            if len(data) > _MAX_UPLOAD_BYTES:
+                raise UserFacingError(_UPLOAD_ERROR)
+        if not is_supported_image(bytes(data)):
+            raise UserFacingError(_UPLOAD_ERROR)
+        payloads.append(bytes(data))
     return payloads
 
 

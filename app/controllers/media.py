@@ -22,4 +22,8 @@ def media(token: str, media_id: str, request: Request) -> Response:
     if session is None or media_id not in session.media:
         return Response(status_code=404)
     data = session.media[media_id]
-    return Response(content=data, media_type=detect_mime(data))
+    return Response(
+        content=data,
+        media_type=detect_mime(data),
+        headers={"X-Content-Type-Options": "nosniff"},
+    )

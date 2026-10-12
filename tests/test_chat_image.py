@@ -59,6 +59,66 @@ def test_oversized_upload_bubbles(client):
     assert session.entries == []
 
 
+def test_non_image_bytes_declared_as_png_are_refused(client):
+    # Review Focus #4: the bytes are checked, not just the label — an
+    # HTML blob declared image/png is refused with the same exact copy.
+    token = _page_token(client)
+    fake = b"<html><body>not an image</body></html>" * 30000  # ~1 MB, under the cap
+
+    response = client.post(
+        "/chat",
+        data={"token": token, "message": "wheel"},
+        files=[("files", ("fake.png", fake, "image/png"))],
+    )
+
+    assert response.status_code == 200
+    assert TOO_BIG in response.text
+
+
+def test_read_validated_caps_an_unbounded_body_with_bounded_reads():
+    # A body larger than memory must be refused from chunked reads — the
+    # reader never read-all()s and bails just past the cap.
+    from app.controllers.chat import _read_validated
+    from app.services.errors import UserFacingError
+
+    class _Infinite:
+        """An upload whose read() never returns empty."""
+
+        content_type = "image/png"
+
+        def __init__(self):
+            self.sizes = []
+            self.file = self
+
+        def read(self, size):
+            self.sizes.append(size)
+            return b"x" * size
+
+    upload = _Infinite()
+
+    with pytest.raises(UserFacingError) as excinfo:
+        _read_validated([upload])
+
+    assert excinfo.value.user_message == TOO_BIG
+    # Every read is a bounded chunk (never the whole body), and the bail
+    # happens within one extra chunk past the cap.
+    assert all(size > 0 for size in upload.sizes)
+    total_requested = len(upload.sizes) * upload.sizes[0]
+    assert MAX_UPLOAD_BYTES < total_requested <= MAX_UPLOAD_BYTES + 1024 * 1024
+
+
+def test_too_many_files_are_refused(client):
+    token = _page_token(client)
+    files = [("files", (f"f{index}.png", _tiny_png(), "image/png")) for index in range(21)]
+
+    response = client.post(
+        "/chat", data={"token": token, "message": "wheel"}, files=files
+    )
+
+    assert response.status_code == 200
+    assert TOO_BIG in response.text
+
+
 def test_gif_rejected(client):
     # Review Focus #4: unsupported type ⇒ same exact copy.
     token = _page_token(client)

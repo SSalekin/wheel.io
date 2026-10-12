@@ -25,6 +25,26 @@ def detect_mime(image: bytes) -> str:
         return PNG_MIME
     if image.startswith(b"\xff\xd8\xff"):
         return JPEG_MIME
-    if len(image) >= 12 and image.startswith(b"RIFF") and image[8:12] == b"WEBP":
+    if _is_webp(image):
         return WEBP_MIME
     return DEFAULT_MIME
+
+
+def is_supported_image(image: bytes) -> bool:
+    """True when the bytes carry one of the three accepted image magics.
+
+    Unlike ``detect_mime`` — which defaults unknown bytes to PNG for
+    labeling — this never guesses: unknown bytes are not an image. The
+    upload gate uses it so a non-image declared ``image/png`` is
+    refused by what the bytes *are*, not by their label.
+    """
+    return (
+        image.startswith(b"\x89PNG")
+        or image.startswith(b"\xff\xd8\xff")
+        or _is_webp(image)
+    )
+
+
+def _is_webp(image: bytes) -> bool:
+    # RIFF container with WEBP at bytes 8-12.
+    return len(image) >= 12 and image.startswith(b"RIFF") and image[8:12] == b"WEBP"

@@ -18,6 +18,19 @@ def _page_token(client) -> str:
     return match.group(1)
 
 
+def test_media_sets_nosniff(client):
+    # Stored bytes are sniffed at serve time; nosniff stops browsers from
+    # second-guessing the label into a script context.
+    token = _page_token(client)
+    session = app.state.store.get(token)
+    assert session is not None
+    session.media["crop-1"] = PNG_BYTES
+
+    response = client.get(f"/media/{token}/crop-1")
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
 def test_media_serves_png(client):
     token = _page_token(client)
     session = app.state.store.get(token)
