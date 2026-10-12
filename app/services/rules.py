@@ -113,16 +113,17 @@ FACE_STEER: set[str] = {
 def parse_items(text: str) -> list[str]:
     """Extract candidate items from a chat message.
 
-    Splits on newlines then commas, drops instruction prefixes (text
-    before ``:``/``：`` on a line, or an unambiguous instruction run
-    fused to the first item), strips bullet/numbering markers, and drops
-    empties. When nothing list-like survives, the whole message is kept
-    as a single item so a plain sentence is never split apart.
+    Splits on newlines then commas, drops instruction language before a
+    line's first ``:``/``：`` (a colon inside data — "9:30", "Bob: red
+    team", a URL — survives whole), strips bullet/numbering markers, and
+    drops empties. An unambiguous instruction run fused to the first item
+    is stripped separately (see ``_strip_instruction_prefix``). When
+    nothing list-like survives, the whole message is kept as a single
+    item so a plain sentence is never split apart.
     """
     segments: list[str] = []
     for line in text.splitlines():
-        after_prefix = re.split(r"[:：]", line, maxsplit=1)[-1]
-        for segment in after_prefix.split(","):
+        for segment in _strip_line_prefix(line).split(","):
             segment = _LEADING_MARKER_RE.sub("", segment).strip()
             if segment:
                 segments.append(segment)
@@ -139,6 +140,25 @@ def parse_items(text: str) -> list[str]:
         return segments
     stripped = text.strip()
     return [stripped] if stripped else []
+
+
+def _strip_line_prefix(line: str) -> str:
+    """Drop instruction language before a line's first colon.
+
+    A colon inside data — "9:30", "Bob: red team", "https://x.com" —
+    is content, so the text before it survives unless it carries an
+    instruction verb ("wheel: …") or the colon closes the line ("make
+    with these:"). An empty prefix loses nothing and is dropped.
+    """
+    parts = _COLON_RE.split(line, maxsplit=1)
+    if len(parts) == 1:
+        return line
+    prefix, rest = parts
+    if not prefix.strip() or not rest.strip():
+        return rest
+    if any(word.lower() in _VERB_TOKENS for word in prefix.split()):
+        return rest
+    return line
 
 
 def _strip_instruction_prefix(segment: str) -> str:

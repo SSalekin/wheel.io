@@ -67,6 +67,26 @@ def test_parse_keeps_the_rock_after_connective():
     assert parse_items("make a wheel with The Rock, Ana") == ["The Rock", "Ana"]
 
 
+def test_parse_keeps_time_like_colons_in_data():
+    # A colon inside data — a time — is not instruction language; only
+    # pre-colon TEXT THAT IS instruction-like gets dropped (audit #7).
+    assert parse_items("9:30, Ana, Bob") == ["9:30", "Ana", "Bob"]
+
+
+def test_parse_keeps_colons_in_later_lines():
+    # Mid-message colons belong to the data ("Bob: red team").
+    assert parse_items("Ana\nBob: red team\nCarol") == ["Ana", "Bob: red team", "Carol"]
+
+
+def test_parse_keeps_urls():
+    assert parse_items("https://x.com, Ana, Bob") == ["https://x.com", "Ana", "Bob"]
+
+
+def test_parse_full_width_colon_still_strips_instruction():
+    # The full-width ： carries the same instruction meaning as :.
+    assert parse_items("wheel： Ana, Bob") == ["Ana", "Bob"]
+
+
 def test_parse_keeps_instruction_word_only_entry():
     assert parse_items("wheel: Pick Me, Ana") == ["Pick Me", "Ana"]
 
