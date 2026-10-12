@@ -20,5 +20,6 @@ def toggle(
     if session is None:
         return stale_bubble
 
-    session.remove_picked = not session.remove_picked
+    with request.app.state.store.lock_for(token):
+        session.remove_picked = not session.remove_picked
     return HTMLResponse("")

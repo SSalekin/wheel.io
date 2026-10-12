@@ -183,3 +183,25 @@ def test_chat_reset_flow(client):
     assert session.warnings == []
     assert session.source_table is None
     assert session.media == {}
+
+
+def test_chat_add_dedupes_and_counts_clean_entries(client):
+    # "add Sam, Sam, Tia" — the batch collapses before it reaches the
+    # wheel, so the count matches what was actually added.
+    token = _page_token(client)
+    _seed_wheel(client, token)
+
+    response = client.post(
+        "/chat", data={"token": token, "message": "add Sam, Sam, Tia"}
+    )
+
+    assert response.status_code == 200
+    assert "Added 2 entries." in html.unescape(response.text)
+    session = app.state.store.get(token)
+    assert [entry.label for entry in session.entries] == [
+        "Ana",
+        "Bob",
+        "Chi",
+        "Sam",
+        "Tia",
+    ]

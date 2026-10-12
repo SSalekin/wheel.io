@@ -47,30 +47,59 @@ def wheel_data(session: WheelSession) -> list[dict]:
     ]
 
 
+def normalize_labels(items: list[str]) -> list[str]:
+    """Clean a batch of labels: strip, drop blanks, dedupe in order.
+
+    Every path that puts labels on the wheel — typed lists, add, the
+    table switch — runs its labels through here, so a blank segment or
+    a name twice in one message never becomes a wheel entry.
+    """
+    clean: list[str] = []
+    for item in items:
+        label = item.strip()
+        if label and label not in clean:
+            clean.append(label)
+    return clean
+
+
 def replace_entries(
     session: WheelSession, items: list[str] | list[Entry]
 ) -> None:
     """Replace the wheel wholesale — one entry per item, picks cleared.
 
-    Plain labels mint fresh entries; prebuilt ``Entry`` objects — image
-    uploads carrying ``image_ref`` (Task 13) — are installed as-is, so
-    the media refs survive the single replace path.
+    Plain labels are normalized (stripped, blanks dropped, duplicates
+    collapsed); prebuilt ``Entry`` objects — image uploads carrying
+    ``image_ref`` (Task 13) — are installed as-is, so the media refs
+    survive the single replace path. Media that nothing references
+    anymore — superseded image crops, since picks are cleared here too —
+    is pruned from ``session.media``.
     ``source_table`` is deliberately untouched: ``switch_column`` reuses
     this to swap to another column of the same table, while callers that
     build a fresh wheel from typed text drop the table themselves.
     """
+    labels = normalize_labels([item for item in items if isinstance(item, str)])
+    built = [item for item in items if isinstance(item, Entry)]
     session.entries = [
-        item if isinstance(item, Entry) else Entry(id=uuid4().hex, label=item)
-        for item in items
-    ]
-    session.picked = []
-
-
-def add_entries(session: WheelSession, labels: list[str]) -> None:
-    """Append ``labels`` to the wheel; the source table is kept (spec §8)."""
-    session.entries.extend(
         Entry(id=uuid4().hex, label=label) for label in labels
-    )
+    ] + built
+    session.picked = []
+    keep = {entry.image_ref for entry in session.entries if entry.image_ref}
+    session.media = {
+        media_id: data
+        for media_id, data in session.media.items()
+        if media_id in keep
+    }
+
+
+def add_entries(session: WheelSession, labels: list[str]) -> int:
+    """Append ``labels`` to the wheel; the source table is kept (spec §8).
+
+    The batch is normalized first, and the number added is returned —
+    "Added N entries." must count what landed, not what was typed.
+    """
+    clean = normalize_labels(labels)
+    session.entries.extend(Entry(id=uuid4().hex, label=label) for label in clean)
+    return len(clean)
 
 
 def remove_label(session: WheelSession, label: str) -> tuple[Entry | None, str | None]:

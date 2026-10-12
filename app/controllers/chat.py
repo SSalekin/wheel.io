@@ -129,146 +129,145 @@ def chat(
     # Degradation notes ride along after the main bubble (Task 7 ruling).
     warning_html = "".join(bubble(request, "system", text) for text in warnings)
 
-    if intent.action == "create_text":
-        # Normalize the parsed list (drop empties, dedup), then hand the
-        # replace to wheel_ops — the single replace path (T4↔T12 ruling).
-        # A typed list carries no table.
-        labels: list[str] = []
-        for item in intent.entries or []:
-            label = item.strip()
-            if label and label not in labels:
-                labels.append(label)
-        wheel_ops.replace_entries(session, labels)
-        session.source_table = None
+    # One mutate→render sequence per request, held whole under the
+    # session's own lock: a concurrent chat, spin, or toggle on this
+    # session waits its turn instead of interleaving mid-mutation.
+    with request.app.state.store.lock_for(token):
+        if intent.action == "create_text":
+            # The single replace path (T4↔T12 ruling): replace_entries
+            # normalizes the parsed list (drop blanks, dedupe). A typed list
+            # carries no table.
+            wheel_ops.replace_entries(session, intent.entries or [])
+            session.source_table = None
 
-        html = bubble(request, "user", message)
-        html += warning_html
-        html += _wheel_regions(request, session)
-        return HTMLResponse(html)
+            html = bubble(request, "user", message)
+            html += warning_html
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
 
-    if intent.action == "clarify":
-        return HTMLResponse(bubble(request, "system", intent.question or "") + warning_html)
+        if intent.action == "clarify":
+            return HTMLResponse(bubble(request, "system", intent.question or "") + warning_html)
 
-    if intent.action == "create_image" and len(files) == 1:
-        # Exactly one upload ⇒ the single-image pipeline; the multi-image
-        # branch follows below.
-        try:
-            result = process_single_image(upload_bytes[0], message, session)
-        except UserFacingError as exc:
-            # Caught locally (T10↔T14 ruling); Task 14 adds the
-            # app-level safety net for routes that don't catch.
-            return HTMLResponse(bubble(request, "system", exc.user_message))
-        session.entries = result.entries
-        session.source_table = result.table
-        session.picked = []
-        session.warnings.extend(result.warnings)
+        if intent.action == "create_image" and len(files) == 1:
+            # Exactly one upload ⇒ the single-image pipeline; the multi-image
+            # branch follows below.
+            try:
+                result = process_single_image(upload_bytes[0], message, session)
+            except UserFacingError as exc:
+                # Caught locally (T10↔T14 ruling); Task 14 adds the
+                # app-level safety net for routes that don't catch.
+                return HTMLResponse(bubble(request, "system", exc.user_message))
+            # The single replace path (also prunes media superseded by the
+            # new entries); the replaced wheel carries its table, if any.
+            wheel_ops.replace_entries(session, result.entries)
+            session.source_table = result.table
+            session.warnings.extend(result.warnings)
 
-        html = bubble(request, "user", message)
-        html += warning_html
-        if result.warnings:
-            html += bubble(request, "system", "\n".join(result.warnings))
-        html += _wheel_regions(request, session)
-        return HTMLResponse(html)
+            html = bubble(request, "user", message)
+            html += warning_html
+            if result.warnings:
+                html += bubble(request, "system", "\n".join(result.warnings))
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
 
-    if intent.action == "create_images" and len(files) >= 2:
-        # ≥2 uploads ⇒ one entry per filename — no OCR, no faces, no
-        # Gemini (Task 13). Bytes are already validated above; pair each
-        # payload with its upload name, then the single replace path.
-        named = [
-            (upload.filename or "", data)
-            for upload, data in zip(files, upload_bytes)
-        ]
-        result = process_multiple_images(named, session)
-        wheel_ops.replace_entries(session, result.entries)
-        # The replaced wheel is filename-backed: drop any table from an
-        # earlier upload so `switch` can't rebuild from entries the user
-        # no longer sees (final-review fix).
-        session.source_table = None
+        if intent.action == "create_images" and len(files) >= 2:
+            # ≥2 uploads ⇒ one entry per filename — no OCR, no faces, no
+            # Gemini (Task 13). Bytes are already validated above; pair each
+            # payload with its upload name, then the single replace path.
+            named = [
+                (upload.filename or "", data)
+                for upload, data in zip(files, upload_bytes)
+            ]
+            result = process_multiple_images(named, session)
+            wheel_ops.replace_entries(session, result.entries)
+            # The replaced wheel is filename-backed: drop any table from an
+            # earlier upload so `switch` can't rebuild from entries the user
+            # no longer sees (final-review fix).
+            session.source_table = None
 
-        html = bubble(request, "user", message)
-        html += warning_html
-        html += _wheel_regions(request, session)
-        return HTMLResponse(html)
+            html = bubble(request, "user", message)
+            html += warning_html
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
 
-    if intent.action == "add":
-        added = intent.entries or []
-        wheel_ops.add_entries(session, added)
+        if intent.action == "add":
+            added_count = wheel_ops.add_entries(session, intent.entries or [])
 
-        html = bubble(request, "user", message)
-        html += warning_html
-        html += bubble(request, "system", f"Added {len(added)} entries.")
-        html += _wheel_regions(request, session)
-        return HTMLResponse(html)
+            html = bubble(request, "user", message)
+            html += warning_html
+            html += bubble(request, "system", f"Added {added_count} entries.")
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
 
-    if intent.action == "remove":
-        html = bubble(request, "user", message)
-        html += warning_html
-        for label in intent.labels or []:
-            entry, note = wheel_ops.remove_label(session, label)
-            # Warnings (duplicates left, not-found) arrive in the note slot;
-            # a clean removal confirms with the wheel's own label.
-            text = note if note is not None else f'Removed "{entry.label}".'
+        if intent.action == "remove":
+            html = bubble(request, "user", message)
+            html += warning_html
+            for label in intent.labels or []:
+                entry, note = wheel_ops.remove_label(session, label)
+                # Warnings (duplicates left, not-found) arrive in the note slot;
+                # a clean removal confirms with the wheel's own label.
+                text = note if note is not None else f'Removed "{entry.label}".'
+                html += bubble(request, "system", text)
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
+
+        if intent.action == "switch_column":
+            note = wheel_ops.switch_column(session, intent.column or "")
+
+            html = bubble(request, "user", message)
+            html += warning_html
+            text = note or f"Switched — the wheel now shows {len(session.entries)} entries."
             html += bubble(request, "system", text)
-        html += _wheel_regions(request, session)
-        return HTMLResponse(html)
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
 
-    if intent.action == "switch_column":
-        note = wheel_ops.switch_column(session, intent.column or "")
+        if intent.action == "reset":
+            wheel_ops.reset(session)
 
-        html = bubble(request, "user", message)
-        html += warning_html
-        text = note or f"Switched — the wheel now shows {len(session.entries)} entries."
-        html += bubble(request, "system", text)
-        html += _wheel_regions(request, session)
-        return HTMLResponse(html)
+            html = bubble(request, "user", message)
+            html += warning_html
+            html += bubble(request, "system", "Wheel cleared.")
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
 
-    if intent.action == "reset":
-        wheel_ops.reset(session)
+        if intent.action == "spin":
+            # Snapshot the wheel BEFORE the spin: with remove_picked on, the
+            # winner is popped by the time we render, and the animation must
+            # still be able to land on it.
+            spin_snapshot = wheel_ops.wheel_data(session)
+            result = wheel_ops.spin(session)
+            html = bubble(request, "user", message)
+            html += warning_html
+            if result is None:
+                # Same copy as an empty POST /spin; nothing changed, so no regions.
+                return HTMLResponse(html + bubble(request, "system", EMPTY_WHEEL))
+            winner, pre_spin_index = result
 
-        html = bubble(request, "user", message)
-        html += warning_html
-        html += bubble(request, "system", "Wheel cleared.")
-        html += _wheel_regions(request, session)
-        return HTMLResponse(html)
+            # The glow marks the winner in the SHIPPED wheel — only when the
+            # winner still has a segment there.
+            glow_index = (
+                pre_spin_index if any(e is winner for e in session.entries) else None
+            )
+            html += bubble(request, "system", f"🎉 {winner.label}")
+            # Chat responses land in #chat-log, so the #banner region swaps out
+            # of band — the banner partial is the region's content.
+            html += (
+                '<div id="banner" class="banner" hx-swap-oob="true">'
+                + render_partial(request, "partials/banner.html", {"label": winner.label})
+                + "</div>"
+            )
+            html += _wheel_regions(
+                request,
+                session,
+                animate=True,
+                pre_index=pre_spin_index,
+                spin_snapshot=spin_snapshot,
+                glow_index=glow_index,
+            )
+            return HTMLResponse(html)
 
-    if intent.action == "spin":
-        # Snapshot the wheel BEFORE the spin: with remove_picked on, the
-        # winner is popped by the time we render, and the animation must
-        # still be able to land on it.
-        spin_snapshot = wheel_ops.wheel_data(session)
-        result = wheel_ops.spin(session)
-        html = bubble(request, "user", message)
-        html += warning_html
-        if result is None:
-            # Same copy as an empty POST /spin; nothing changed, so no regions.
-            return HTMLResponse(html + bubble(request, "system", EMPTY_WHEEL))
-        winner, pre_spin_index = result
-
-        # The glow marks the winner in the SHIPPED wheel — only when the
-        # winner still has a segment there.
-        glow_index = (
-            pre_spin_index if any(e is winner for e in session.entries) else None
-        )
-        html += bubble(request, "system", f"🎉 {winner.label}")
-        # Chat responses land in #chat-log, so the #banner region swaps out
-        # of band — the banner partial is the region's content.
-        html += (
-            '<div id="banner" class="banner" hx-swap-oob="true">'
-            + render_partial(request, "partials/banner.html", {"label": winner.label})
-            + "</div>"
-        )
-        html += _wheel_regions(
-            request,
-            session,
-            animate=True,
-            pre_index=pre_spin_index,
-            spin_snapshot=spin_snapshot,
-            glow_index=glow_index,
-        )
-        return HTMLResponse(html)
-
-    # Every rule-bound action has a branch above. What can still land
-    # here is a Gemini reply carrying an image action with a mismatched
-    # file count (e.g. create_images with nothing attached): echo the
-    # message without touching state — never mutate on an unmatched intent.
-    return HTMLResponse(bubble(request, "user", message) + warning_html)
+        # Every rule-bound action has a branch above. What can still land
+        # here is a Gemini reply carrying an image action with a mismatched
+        # file count (e.g. create_images with nothing attached): echo the
+        # message without touching state — never mutate on an unmatched intent.
+        return HTMLResponse(bubble(request, "user", message) + warning_html)

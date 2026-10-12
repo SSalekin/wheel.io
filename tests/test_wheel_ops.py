@@ -172,3 +172,46 @@ def test_reset_clears_everything():
     assert session.warnings == []
     assert session.source_table is None
     assert session.media == {}
+
+
+def test_normalize_labels_strips_drops_and_dedupes():
+    assert wheel_ops.normalize_labels(
+        ["", " Ana ", "Ana", "Bob", "   "]
+    ) == ["Ana", "Bob"]
+
+
+def test_add_entries_normalizes_blank_and_duplicate_labels():
+    session = _session(["Ana"])
+
+    count = wheel_ops.add_entries(session, ["", " Sam ", "Sam", "Tia"])
+
+    assert count == 2
+    assert [entry.label for entry in session.entries] == ["Ana", "Sam", "Tia"]
+
+
+def test_replace_entries_prunes_superseded_media():
+    session = _session(["Ana"])
+    session.media = {"old": b"old-bytes", "kept": b"kept-bytes"}
+    session.entries = [Entry(id="e0", label="Old", image_ref="old")]
+
+    wheel_ops.replace_entries(session, [Entry(id="e1", label="New", image_ref="kept")])
+
+    assert "old" not in session.media
+    assert "kept" in session.media
+
+
+def test_switch_column_blank_cells_yield_clean_entries():
+    # A chosen column carrying blank cells must not put blank entries
+    # on the wheel.
+    session = _session(["Ana"])
+    session.source_table = Table(
+        columns=[
+            TableColumn(header="Name", values=["A1", "B2"]),
+            TableColumn(header="Notes", values=["", "  ", "note"]),
+        ],
+        confidence=95.0,
+    )
+
+    wheel_ops.switch_column(session, "Notes")
+
+    assert [entry.label for entry in session.entries] == ["note"]
