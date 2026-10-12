@@ -9,7 +9,7 @@ below is the frozen contract with the chat controller.
 from app.models import Intent, WheelSession
 from app.services import gemini
 from app.services.gemini import GeminiError
-from app.services.rules import classify_message, parse_items
+from app.services.rules import classify_message, looks_like_list, parse_items
 
 DEFAULT_CLARIFY = "Could you send me a list or an image to put on the wheel?"
 _DEGRADED_WARNING = "⚠️ AI unreachable — best-guess parsing."
@@ -46,14 +46,19 @@ def interpret(
 
 
 def _degrade(message: str, image_count: int) -> tuple[Intent, list[str]]:
-    """Best-guess fallback for both failure paths, with the exact warning."""
+    """Best-guess fallback for both failure paths, with the exact warning.
+
+    The create fallback needs a clean list (``looks_like_list``): prose
+    with an instruction word in it ("hey, take Ana off the wheel") must
+    clarify rather than guess a junk wheel.
+    """
     items = parse_items(message)
-    if len(items) >= 2:
+    if looks_like_list(items):
         intent = Intent(action="create_text", entries=items)
     elif image_count >= 2:
         intent = Intent(action="create_images")
     elif image_count == 1:
-        intent = Intent(action="create_image")
+        intent = Intent("create_image")
     else:
         intent = Intent(action="clarify", question=DEFAULT_CLARIFY)
     return intent, [_DEGRADED_WARNING]

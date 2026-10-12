@@ -10,13 +10,35 @@ import re
 
 from app.models import Intent
 
-# Instruction verbs/patterns: used both to detect a create request in the
-# raw message and to drop instruction lines while parsing items.
+# Instruction verbs/patterns: used to detect a create request in the raw
+# message's lead (``_has_create_lead``). Item extraction strips
+# instruction language positionally (see _strip_instruction_prefix), never
+# by scanning item text.
 _INSTRUCTION_RE = re.compile(
     r"\b(?:wheel|make|create|build|pick|choose|random|generate)\b"
     r"|\blist of\b"
     r"|(?:these|this)\s*[:：]",
     re.IGNORECASE,
+)
+
+# Words that can appear inside an instruction phrase ("make me a wheel with
+# …", "pick the names from …"). Used only to recognize a leading
+# instruction PREFIX — an instruction word anywhere in an item is content,
+# not an instruction ("Random Guy" is an entry).
+_INSTRUCTION_TOKEN_RE = re.compile(
+    r"\b(?:wheel|list|make|create|build|pick|choose|random|generate"
+    r"|with|for|from|of|me|my|a|an|the|these|this|those"
+    r"|names?|students?|entries|items|please)\b",
+    re.IGNORECASE,
+)
+
+# Tokens that prove a leading run of instruction words really is
+# instruction language — a connective or the instruction's object — rather
+# than content glued to the first item: "with" makes "make me a wheel with
+# Ana" instructions; a bare glued verb ("wheel Ana") is ambiguous.
+_STRUCTURAL_TOKENS = frozenset(
+    {"with", "for", "from", "of", "these", "this", "list",
+     "names", "name", "students", "student", "entries", "items"}
 )
 
 _COLON_RE = re.compile(r"[:：]")
@@ -71,10 +93,10 @@ def parse_items(text: str) -> list[str]:
     """Extract candidate items from a chat message.
 
     Splits on newlines then commas, drops instruction prefixes (text
-    before ``:``/``：`` on a line) and instruction segments, strips
-    bullet/numbering markers, and drops empties. When nothing list-like
-    survives, the whole message is kept as a single item so a plain
-    sentence is never split apart.
+    before ``:``/``：`` on a line, or an unambiguous instruction run
+    fused to the first item), strips bullet/numbering markers, and drops
+    empties. When nothing list-like survives, the whole message is kept
+    as a single item so a plain sentence is never split apart.
     """
     segments: list[str] = []
     for line in text.splitlines():
@@ -84,11 +106,44 @@ def parse_items(text: str) -> list[str]:
             if segment:
                 segments.append(segment)
 
-    kept = [s for s in segments if not _INSTRUCTION_RE.search(s)]
-    if kept:
-        return kept
+    # Instruction language precedes the first item ("make me a wheel with
+    # Ana, Bob"), so strip it there — and only there. Anywhere else an
+    # instruction word is content: "Random Guy" is an entry, not an
+    # instruction.
+    if segments:
+        first = _strip_instruction_prefix(segments[0])
+        segments = ([first] if first else []) + segments[1:]
+
+    if segments:
+        return segments
     stripped = text.strip()
     return [stripped] if stripped else []
+
+
+def _strip_instruction_prefix(segment: str) -> str:
+    """Drop a leading instruction phrase from the first item's segment.
+
+    The leading run of instruction words is stripped only when it is
+    unambiguous instruction language: it contains a connective or the
+    instruction's object (``with``/``for``/``from``/``of``/``these``/
+    ``names``/…), or the run spans the whole segment ("make a wheel with
+    the names" on its own line carries no entry). "make me a wheel with
+    Ana" becomes "Ana"; a lone glued verb ("wheel Ana", "Random Guy",
+    "Pick Me") is ambiguous and stays whole — a visible wrong entry
+    beats an invisible missing one.
+    """
+    words = segment.split()
+    run = 0
+    structural = False
+    for word in words:
+        if not _INSTRUCTION_TOKEN_RE.fullmatch(word):
+            break
+        if word.lower() in _STRUCTURAL_TOKENS:
+            structural = True
+        run += 1
+    if not structural:
+        return segment
+    return " ".join(words[run:]).strip()
 
 
 def classify_message(message: str, image_count: int) -> Intent | None:
@@ -108,16 +163,40 @@ def _classify_create(message: str) -> Intent | None:
     items = parse_items(message)
     if len(items) < 2:
         return None
-    if _FOLLOWUP_LED_RE.match(message):
-        return None
-    has_verb = _INSTRUCTION_RE.search(message) is not None
-    has_newline_list = (
-        sum(1 for line in message.splitlines() if line.strip()) >= 2
-    )
-    # Comma-only lists additionally require a verb.
-    if not (has_verb or has_newline_list):
+    if not _has_create_lead(message):
         return None
     return Intent(action="create_text", entries=items)
+
+
+def _has_create_lead(message: str) -> bool:
+    """Does the message announce list-shaped create intent?
+
+    A create request says so in its LEAD: an instruction verb before the
+    first list separator ("wheel:", "make a wheel with these:"), or a
+    bare multi-line list (no verb needed). An instruction word appearing
+    only later is prose ("hey, take Bob off the wheel"). A followup verb
+    at the helm ("add\nSam\nTia") is never a create request.
+    """
+    if _FOLLOWUP_LED_RE.match(message):
+        return False
+    if _INSTRUCTION_RE.search(_message_lead(message)):
+        return True
+    return sum(1 for line in message.splitlines() if line.strip()) >= 2
+
+
+def _message_lead(message: str) -> str:
+    """The message up to its first list separator (newline or comma)."""
+    return re.split(r"[\n,]", message, maxsplit=1)[0]
+
+
+def looks_like_list(items: list[str]) -> bool:
+    """True when 2+ items survive and none carries an instruction word.
+
+    The degrade path's best guess for "make a wheel from this": prose
+    with an instruction word in it ("hey, take Ana off the wheel") is a
+    clause, not a list, so it clarifies instead of building a junk wheel.
+    """
+    return len(items) >= 2 and not any(_INSTRUCTION_RE.search(item) for item in items)
 
 
 def _classify_followup(message: str) -> Intent | None:

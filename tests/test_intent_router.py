@@ -99,6 +99,20 @@ def test_gemini_timeout_with_list_degrades_to_create_text():
 
 
 @respx.mock
+def test_gemini_timeout_prose_clarifies_not_junk_wheel():
+    # Regression: prose with an instruction word in it ("hey, take Ana off
+    # the wheel") used to degrade into a junk wheel with two entries; it
+    # clarifies instead of guessing.
+    respx.post(API_URL).side_effect = httpx.TimeoutException("timed out")
+
+    intent, warnings = interpret("hey, take Ana off the wheel", 0, _session())
+
+    assert intent.action == "clarify"
+    assert intent.question == CLARIFY_DEFAULT
+    assert warnings == [WARNING]
+
+
+@respx.mock
 def test_gemini_unknown_action_degrades():
     respx.post(API_URL).respond(200, json=_candidate_body('{"action":"dance"}'))
 

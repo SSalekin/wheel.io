@@ -27,6 +27,38 @@ def test_parse_bullets_and_numbering():
     ]
 
 
+def test_parse_keeps_entry_containing_instruction_word():
+    # Regression: "Random Guy" was dropped as an instruction word and the
+    # message lost an entry (or failed classification entirely).
+    assert parse_items("wheel: Random Guy, Ana, Bob") == ["Random Guy", "Ana", "Bob"]
+
+
+def test_parse_strips_unambiguous_instruction_prefix():
+    # A connective (with/for/from/of/these) proves the leading run is
+    # instruction language fused to the first item, not content.
+    assert parse_items("make me a wheel with Ana, Bob, Chi") == ["Ana", "Bob", "Chi"]
+
+
+def test_parse_keeps_glued_verb_prefix():
+    # Pinned tradeoff: "wheel Ana" (single glued verb, no connective) is
+    # ambiguous, so the segment is kept whole — a visible wrong entry
+    # beats an invisible missing one.
+    assert parse_items("wheel Ana, Bob, Chi") == ["wheel Ana", "Bob", "Chi"]
+
+
+def test_parse_keeps_instruction_word_only_entry():
+    assert parse_items("wheel: Pick Me, Ana") == ["Pick Me", "Ana"]
+
+
+def test_parse_drops_instruction_only_segment():
+    assert parse_items("make a wheel with the names, Ana, Bob") == ["Ana", "Bob"]
+    assert parse_items("pick the names from the list, Ana, Bob") == ["Ana", "Bob"]
+
+
+def test_parse_instruction_only_message_kept_whole():
+    assert parse_items("make a wheel") == ["make a wheel"]
+
+
 def test_parse_single_sentence_not_split():
     assert parse_items("pick the names from the list") == [
         "pick the names from the list"
@@ -54,6 +86,23 @@ def test_comma_list_needs_verb():
     assert intent is not None
     assert intent.action == "create_text"
     assert intent.entries == ["Ana", "Bob"]
+
+
+def test_prose_with_instruction_word_is_not_a_list():
+    # An instruction word inside a prose clause is not a create request:
+    # the verb must live in the message's lead, before the first list
+    # separator — else "hey, take Bob off the wheel" becomes two junk
+    # entries instead of escalating (to a Gemini "remove").
+    assert classify_message("hey, take Bob off the wheel", 0) is None
+
+
+def test_create_text_keeps_instruction_word_entry():
+    # Regression: the entry "Random Guy" reached the wheel (classify-level).
+    intent = classify_message("wheel: Random Guy, Ana, Bob", 0)
+
+    assert intent is not None
+    assert intent.action == "create_text"
+    assert intent.entries == ["Random Guy", "Ana", "Bob"]
 
 
 def test_one_image_routes_to_create_image():
