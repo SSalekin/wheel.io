@@ -145,8 +145,14 @@ def _text_path(
 
 
 def _from_table(table: Table, message: str) -> ImageResult:
-    """Reliable reading: the picker chooses a column; its warning travels."""
+    """Reliable reading: the picker chooses a column; its warning travels.
+
+    A column with no non-blank values is not a wheel — the reading is
+    treated as unreadable so the user gets that copy instead of an
+    empty wheel (audit #3)."""
     choice = pick_column(table, message)
+    if not any(value.strip() for value in choice.values):
+        raise UserFacingError(_UNREADABLE)
     warnings = [choice.warning] if choice.warning else []
     return ImageResult(
         entries=_entries(choice.values), table=table, warnings=warnings

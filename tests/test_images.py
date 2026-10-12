@@ -38,6 +38,29 @@ def _table(confidence: float = 95.0) -> Table:
     )
 
 
+def test_blank_column_raises_unreadable(monkeypatch, session):
+    # A chosen column with no values is an unreadable reading, not an
+    # empty wheel (audit #3).
+    table = Table(columns=[TableColumn(header="Ana", values=[])], confidence=95.0)
+    monkeypatch.setattr("app.services.images.read_table", lambda image_bytes: table)
+
+    with pytest.raises(UserFacingError, match="Couldn't find anything readable"):
+        images.process_single_image(b"png-bytes", "wheel the names", session)
+
+
+def test_single_column_table_becomes_entries(monkeypatch, session):
+    # The OCR layer now keeps line 1 as data for headerless lists; the
+    # picker's single-column path turns that into entries.
+    table = Table(
+        columns=[TableColumn(header="", values=["Ana", "Bob"])], confidence=95.0
+    )
+    monkeypatch.setattr("app.services.images.read_table", lambda image_bytes: table)
+
+    result = images.process_single_image(b"png-bytes", "wheel the names", session)
+
+    assert [entry.label for entry in result.entries] == ["Ana", "Bob"]
+
+
 def test_text_path_builds_entries(monkeypatch, session):
     # Mock the OCR step (ocr.read_table) at its images.py import site.
     monkeypatch.setattr(images, "read_table", lambda image_bytes: _table())

@@ -110,7 +110,12 @@ def _column_segments(words: list[dict]) -> list[tuple[int, int]]:
 
 
 def _build_table(words: list[dict]) -> Table | None:
-    """Assemble word boxes into a ``Table``; the first line is the header."""
+    """Assemble word boxes into a ``Table``.
+
+    Multi-column tables take the first line as the header; a
+    single-column table is a headerless list — a photo of plain names —
+    so every line, including the first, is a value.
+    """
     if not words:
         return None
     lines = _group_lines(words)
@@ -128,10 +133,18 @@ def _build_table(words: list[dict]) -> Table | None:
                     break
         rows.append(cells)
 
+    confidence = sum(word["conf"] for word in words) / len(words)
+    if len(segments) == 1:
+        # Headerless single-column list — a photo of plain names: every
+        # line is a value. Consuming line 1 as a header would silently
+        # drop the first name (audit #3).
+        return Table(
+            columns=[TableColumn(header="", values=[row[0] for row in rows])],
+            confidence=confidence,
+        )
     headers = rows[0]
     columns = [
         TableColumn(header=header, values=[row[index] for row in rows[1:]])
         for index, header in enumerate(headers)
     ]
-    confidence = sum(word["conf"] for word in words) / len(words)
     return Table(columns=columns, confidence=confidence)

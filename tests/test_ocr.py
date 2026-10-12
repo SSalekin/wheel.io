@@ -52,6 +52,28 @@ def _blank_png(width: int = 120, height: int = 80) -> bytes:
     return buffer.getvalue()
 
 
+def test_single_column_table_keeps_every_line_as_data(monkeypatch):
+    # Audit #3: a photo of a plain name list has no header row — the first
+    # line is a name like any other, not a column header to be consumed.
+    _patch_image_to_data(
+        monkeypatch,
+        _fake_data(
+            [
+                ("Ana", 95, 10, 10, 80, 30),
+                ("Bob", 95, 10, 60, 80, 30),
+                ("Carol", 95, 10, 110, 80, 30),
+            ]
+        ),
+    )
+
+    table = read_table(_blank_png())
+
+    assert table is not None
+    assert len(table.columns) == 1
+    assert table.columns[0].header == ""
+    assert table.columns[0].values == ["Ana", "Bob", "Carol"]
+
+
 def test_words_group_into_lines_and_columns(monkeypatch):
     # Two column blocks with a 110 px empty strip between them; three rows
     # whose vertical ranges (10-40, 60-90, 110-140) never overlap.
