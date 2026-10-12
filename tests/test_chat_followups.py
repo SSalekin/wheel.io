@@ -79,7 +79,9 @@ def test_chat_remove_duplicate_warns(client):
 
 def test_chat_spin_flow(client):
     # Chat-spin carries the same partial set as POST /spin: winner bubble +
-    # OOB banner, wheel pane (animate + pre-index), picked list, Go form.
+    # OOB banner, wheel pane (animate + pre-index), Go form. The picked
+    # sidebar is deferred — wheel.js fetches GET /picked when the spin
+    # animation ends so the winner appears only once the wheel stops.
     token = _page_token(client)
     _seed_wheel(client, token)
 
@@ -93,7 +95,7 @@ def test_chat_spin_flow(client):
     assert 'data-animate="1"' in body
     assert re.search(r'data-pre-index="\d+"', body)
     assert 'id="wheel-pane"' in body
-    assert 'id="picked-list"' in body
+    assert 'id="picked-list"' not in body
     assert 'id="go-form"' in body
     assert "hx-swap-oob" in body
 

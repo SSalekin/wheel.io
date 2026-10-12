@@ -293,6 +293,24 @@
     if (confetti.length) requestAnimationFrame(drawConfetti);
   }
 
+  /* Re-fetch the picked sidebar from the server. The spin responses no
+     longer ship it OOB — the winner should appear only once the wheel
+     has stopped, so the done-callback of the spin asks for it. */
+  function refreshPicked() {
+    var tokenInput = document.querySelector('#chat-form input[name="token"]');
+    if (!tokenInput || !window.fetch) return;
+    fetch("/picked?token=" + encodeURIComponent(tokenInput.value))
+      .then(function (res) { return res.text(); })
+      .then(function (html) {
+        var fresh = document.createRange
+          ? document.createRange().createContextualFragment(html).querySelector("#picked-list")
+          : null;
+        var current = document.getElementById("picked-list");
+        if (fresh && current) current.replaceWith(fresh);
+      })
+      .catch(function () { /* stale token / network hiccup: keep the sidebar as-is */ });
+  }
+
   /* After any htmx swap, re-read #wheel-data (inside the swapped
      #wheel-pane): spin when the server says it picked a winner, otherwise
      just redraw. Never computes a winner itself. */
@@ -306,6 +324,7 @@
       var index = parseInt(data.preIndex, 10);
       WheelIO.spinTo(isNaN(index) ? 0 : index, function () {
         WheelIO.render(next);
+        refreshPicked();  // winner lands in the sidebar only when the wheel stops
       });
     } else {
       WheelIO.render(next);

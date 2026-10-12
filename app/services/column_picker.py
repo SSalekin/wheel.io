@@ -22,7 +22,7 @@ from app.services import gemini
 from app.services.gemini import GeminiError
 
 EMAIL_HEADERS = {"email", "e-mail", "mail"}
-ID_HEADERS = {"id", "roll", "enrollment", "admission"}
+ID_HEADERS = {"id", "student id", "roll", "enrollment", "admission"}
 NAME_HEADERS = {"name", "student", "full"}
 
 _AI_UNREACHABLE_WARNING = "⚠️ AI unreachable — best-guess parsing."

@@ -229,7 +229,8 @@ button:disabled:hover {
   gap: 6px;
 }
 
-.picked-empty {
+.picked-list li.picked-empty {
+  list-style: none;
   font-size: 13px;
   font-style: italic;
   color: var(--muted);

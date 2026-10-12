@@ -1,8 +1,7 @@
 <ol id="picked-list" class="picked-list" hx-swap-oob="true">
   {%- for entry in picked %}
   <li>{% if entry.image_ref %}<img src="/media/{{ session.token }}/{{ entry.image_ref }}" alt="">{% endif %}{{ entry.label }}</li>
+  {%- else %}
+  <li class="picked-empty">No one picked yet</li>
   {%- endfor %}
 </ol>
-{%- if not picked %}
-<p class="picked-empty">No one picked yet</p>
-{%- endif %}

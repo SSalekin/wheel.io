@@ -50,7 +50,9 @@ def _wheel_regions(
     Wheel pane + picked sidebar + Go form, each shipped OOB so the wheel
     pane, sidebar, and controls stay in sync with the session.
     ``animate``/``pre_index`` mark the pane for wheel.js when a spin just
-    happened (chat-spin, same shape as POST /spin).
+    happened (chat-spin, same shape as POST /spin). An animated response
+    omits the picked sidebar: wheel.js fetches GET /picked when the spin
+    ends, so the winner lands in the sidebar only once the wheel stops.
     """
     html = render_partial(
         request,
@@ -61,9 +63,10 @@ def _wheel_regions(
             "pre_index": pre_index,
         },
     )
-    html += render_partial(
-        request, "partials/picked_list.html", {"picked": session.picked, "session": session}
-    )
+    if not animate:
+        html += render_partial(
+            request, "partials/picked_list.html", {"picked": session.picked, "session": session}
+        )
     html += render_partial(
         request,
         "partials/go_form.html",

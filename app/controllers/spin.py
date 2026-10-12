@@ -31,8 +31,25 @@ def _empty_wheel_response(request: Request, session) -> HTMLResponse:
     )
 
 
+@router.get("/picked", response_class=HTMLResponse)
+def picked(request: Request, token: str) -> HTMLResponse:
+    """The picked sidebar on its own — wheel.js fetches this when a spin
+    animation ends, so the winner lands in the sidebar only after the
+    wheel stops (the spin responses no longer ship the list OOB)."""
+    session, stale_bubble = get_session_or_bubble(request, token)
+    if session is None:
+        return stale_bubble
+    return HTMLResponse(
+        render_partial(
+            request,
+            "partials/picked_list.html",
+            {"picked": session.picked, "session": session},
+        )
+    )
+
+
 @router.post("/spin", response_class=HTMLResponse)
-def spin(request: Request, token: str = Form(...)):
+def spin(request: Request, token: str = Form(...)) -> HTMLResponse:
     session, stale_bubble = get_session_or_bubble(request, token)
     if session is None:
         return stale_bubble
@@ -55,7 +72,6 @@ def spin(request: Request, token: str = Form(...)):
             "pre_index": pre_spin_index,
         },
     )
-    html += render_partial(request, "partials/picked_list.html", {"picked": session.picked})
     html += render_partial(
         request,
         "partials/go_form.html",
