@@ -100,3 +100,78 @@ def test_degraded_warning_renders_on_create_text(client):
     assert warning_bubble in response.text
     session = app.state.store.get(token)
     assert [entry.label for entry in session.entries] == ["Ana", "Bob"]
+
+
+# --- "no duplicates" directive wiring ---
+
+
+def test_standalone_directive_toggles_skip_duplicates(client):
+    token = _page_token(client)
+    client.post("/chat", data={"token": token, "message": "wheel:\nAna\nBob"})
+
+    response = client.post("/chat", data={"token": token, "message": "no duplicates please"})
+
+    assert response.status_code == 200
+    assert "No duplicates — picked entries leave the wheel." in response.text
+    assert 'hx-swap="none" checked>' in response.text  # Go form ships the tick
+    session = app.state.store.get(token)
+    assert session.remove_picked is True
+
+    # The mode bites on the next spin: the winner leaves the wheel.
+    spin = client.post("/spin", data={"token": token})
+    assert spin.status_code == 200
+    session = app.state.store.get(token)
+    assert len(session.picked) == 1
+
+
+def test_embedded_directive_builds_wheel_without_it(client):
+    token = _page_token(client)
+
+    response = client.post(
+        "/chat", data={"token": token, "message": "No duplicates please\nAna\nBob"}
+    )
+
+    assert response.status_code == 200
+    session = app.state.store.get(token)
+    assert [entry.label for entry in session.entries] == ["Ana", "Bob"]
+    assert session.remove_picked is True
+    assert "No duplicates — picked entries leave the wheel." in response.text
+    assert 'hx-swap="none" checked>' in response.text
+
+
+def test_allow_duplicates_turns_the_mode_off(client):
+    token = _page_token(client)
+    client.post("/chat", data={"token": token, "message": "no duplicates please"})
+
+    response = client.post("/chat", data={"token": token, "message": "allow duplicates"})
+
+    assert response.status_code == 200
+    assert "Duplicates allowed — anyone can be picked again." in response.text
+    assert 'hx-swap="none" checked>' not in response.text
+    session = app.state.store.get(token)
+    assert session.remove_picked is False
+
+
+def test_directive_rides_along_an_add(client):
+    token = _page_token(client)
+    client.post("/chat", data={"token": token, "message": "wheel:\nAna\nBob"})
+
+    response = client.post("/chat", data={"token": token, "message": "add Chi, no repeats"})
+
+    assert response.status_code == 200
+    session = app.state.store.get(token)
+    assert [entry.label for entry in session.entries] == ["Ana", "Bob", "Chi"]
+    assert session.remove_picked is True
+    assert "Added 1 entries." in response.text
+    assert "No duplicates — picked entries leave the wheel." in response.text
+
+
+def test_plain_creates_leave_the_mode_alone(client):
+    token = _page_token(client)
+    client.post("/chat", data={"token": token, "message": "no duplicates please"})
+
+    response = client.post("/chat", data={"token": token, "message": "wheel:\nAna\nBob"})
+
+    assert response.status_code == 200
+    session = app.state.store.get(token)
+    assert session.remove_picked is True  # sticky across new lists

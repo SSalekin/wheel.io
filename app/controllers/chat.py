@@ -11,8 +11,13 @@ from app.services.errors import UserFacingError
 from app.services.images import process_multiple_images, process_single_image
 from app.services.intent_router import interpret
 from app.services.mime import is_supported_image
+from app.services.rules import duplicates_directive
 
 router = APIRouter()
+
+# Byte-exact user-facing copy (never vary).
+_NO_DUPLICATES_ON = "No duplicates — picked entries leave the wheel."
+_NO_DUPLICATES_OFF = "Duplicates allowed — anyone can be picked again."
 
 # Upload contract (spec §7): png/jpeg/webp, at most 10 MB, at most 20 files.
 _ALLOWED_UPLOAD_TYPES = {"image/png", "image/jpeg", "image/webp"}
@@ -105,6 +110,22 @@ def _wheel_regions(
     return html
 
 
+def _apply_directive(
+    request: Request, session: WheelSession, directive: bool | None
+) -> str:
+    """Turn skip-duplicates mode on/off per a chat directive.
+
+    Returns the byte-exact confirmation bubble (empty when the message
+    carried no directive); the mode is the remove-picked checkbox, which
+    ships its new state in the same response's Go form.
+    """
+    if directive is None:
+        return ""
+    session.remove_picked = directive
+    text = _NO_DUPLICATES_ON if directive else _NO_DUPLICATES_OFF
+    return bubble(request, "system", text)
+
+
 @router.post("/chat", response_class=HTMLResponse)
 def chat(
     request: Request,
@@ -128,6 +149,9 @@ def chat(
     intent, warnings = interpret(message, len(files), session)
     # Degradation notes ride along after the main bubble (Task 7 ruling).
     warning_html = "".join(bubble(request, "system", text) for text in warnings)
+    # A "no duplicates" phrase riding a create/add enables skip-duplicates
+    # mode; the rules already kept it off the wheel (parse_items lifts it).
+    directive = duplicates_directive(message)
 
     # One mutate→render sequence per request, held whole under the
     # session's own lock: a concurrent chat, spin, or toggle on this
@@ -142,6 +166,16 @@ def chat(
 
             html = bubble(request, "user", message)
             html += warning_html
+            html += _apply_directive(request, session, directive)
+            html += _wheel_regions(request, session)
+            return HTMLResponse(html)
+
+        if intent.action == "duplicates":
+            # Standalone directive: toggle the mode, confirm, re-ship the
+            # Go form so the checkbox reflects the new state.
+            html = bubble(request, "user", message)
+            html += warning_html
+            html += _apply_directive(request, session, bool(intent.enabled))
             html += _wheel_regions(request, session)
             return HTMLResponse(html)
 
@@ -166,6 +200,7 @@ def chat(
             html += warning_html
             if result.warnings:
                 html += bubble(request, "system", "\n".join(result.warnings))
+            html += _apply_directive(request, session, directive)
             html += _wheel_regions(request, session)
             return HTMLResponse(html)
 
@@ -186,6 +221,7 @@ def chat(
 
             html = bubble(request, "user", message)
             html += warning_html
+            html += _apply_directive(request, session, directive)
             html += _wheel_regions(request, session)
             return HTMLResponse(html)
 
@@ -195,6 +231,7 @@ def chat(
             html = bubble(request, "user", message)
             html += warning_html
             html += bubble(request, "system", f"Added {added_count} entries.")
+            html += _apply_directive(request, session, directive)
             html += _wheel_regions(request, session)
             return HTMLResponse(html)
 

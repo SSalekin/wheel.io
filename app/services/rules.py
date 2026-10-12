@@ -353,4 +353,8 @@ def _classify_image(image_count: int) -> Intent | None:
 
 def _split_items(text: str) -> list[str]:
     parts = _SPLIT_RE.split(text)
-    return [part.strip() for part in parts if part.strip()]
+    return [
+        part.strip()
+        for part in parts
+        if part.strip() and not _directive_only(part)
+    ]
