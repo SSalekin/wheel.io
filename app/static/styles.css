@@ -219,6 +219,8 @@ button:disabled:hover {
   margin: 0;
   padding-left: 20px;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .picked-list li {
@@ -327,4 +329,17 @@ button:disabled:hover {
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+/* Screen-reader-only content (the wheel's entry list). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

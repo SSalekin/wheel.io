@@ -23,6 +23,8 @@
   var rotation = 0;     // radians; 0 = segment 0's leading edge at 12 o'clock
   var spinToken = 0;
   var winningIndex = null;
+  var wheelSize = 480;  // logical (CSS) px; re-read when the canvas is swapped
+  var lastCanvas = null;
   var confetti = [];
   var confettiRunning = false;  // at most one animation loop ever runs
 
@@ -31,7 +33,12 @@
   }
 
   function labelFor(label) {
-    return label.length > LABEL_MAX ? label.slice(0, LABEL_MAX - 1) + "…" : label;
+    // Array.from splits by code point: truncation never halves a
+    // surrogate pair (emoji names stay whole).
+    var chars = Array.from(label);
+    return chars.length > LABEL_MAX
+      ? chars.slice(0, LABEL_MAX - 1).join("") + "…"
+      : label;
   }
 
   var thumbs = new Map();  // image_url -> Image once ready; false once failed
@@ -105,10 +112,24 @@
     // Every OOB #wheel-pane swap replaces the node: re-acquire it per draw,
     // or we'd render into a detached canvas after the first swap.
     canvas = document.getElementById("wheel");
-    ctx = canvas && canvas.getContext("2d");
+    if (!canvas) return;
+    if (canvas !== lastCanvas) {
+      // A fresh node ships the logical size as its attributes.
+      lastCanvas = canvas;
+      wheelSize = parseInt(canvas.getAttribute("width"), 10) || 480;
+    }
+    // HiDPI: the backing store follows the display density; all drawing
+    // below stays in CSS pixels via the dpr transform.
+    var dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== wheelSize * dpr) {
+      canvas.width = Math.round(wheelSize * dpr);
+      canvas.height = Math.round(wheelSize * dpr);
+    }
+    ctx = canvas.getContext("2d");
     if (!ctx) return;
-    var w = canvas.width;
-    var h = canvas.height;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var w = wheelSize;
+    var h = wheelSize;
     var cx = w / 2;
     var cy = h / 2;
     var radius = Math.min(w, h) / 2 - 2;
@@ -268,6 +289,17 @@
 
       setGoBusy(true);
 
+      // Reduced motion: land on the same segment without the flight —
+      // no animation, no confetti storm.
+      if (window.matchMedia &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        rotation = normalize(target);
+        draw();
+        setGoBusy(false);
+        if (done) done();
+        return;
+      }
+
       requestAnimationFrame(function frame(now) {
         if (token !== spinToken) return;  // a newer spin superseded this one
         if (beganAt === null) beganAt = now;
@@ -302,8 +334,8 @@
     var colors = ["#4f46e5", "#ffd9d9", "#ffe6cc", "#ddf5d5", "#d3ecfb", "#f4d9ff"];
     for (var i = 0; i < 40; i++) {
       confetti.push({
-        x: canvas.width / 2,
-        y: canvas.height / 2,
+        x: wheelSize / 2,
+        y: wheelSize / 2,
         vx: (Math.random() - 0.5) * 8,
         vy: (Math.random() - 0.5) * 8 - 3,
         color: colors[Math.floor(Math.random() * colors.length)],
@@ -447,6 +479,12 @@
     document.getElementById("chat-form").addEventListener("submit", function () {
       clearPreviews();
     });
+
+    // Clear the picker only on success: a failed request keeps the
+    // files so the user can retry them.
+    document.getElementById("chat-form").addEventListener("htmx:afterRequest", function (e) {
+      if (e.detail && e.detail.successful) fileInput.value = "";
+    });
   })();
 
   /* Enter to send, Shift+Enter for newline */
@@ -466,7 +504,11 @@
     var chatLog = document.getElementById("chat-log");
     if (!chatLog) return;
     var observer = new MutationObserver(function () {
-      chatLog.scrollTop = chatLog.scrollHeight;
+      // Follow the conversation, but don't yank the view when the user
+      // scrolled up to read older messages.
+      var nearBottom =
+        chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 80;
+      if (nearBottom) chatLog.scrollTop = chatLog.scrollHeight;
     });
     observer.observe(chatLog, { childList: true });
   })();

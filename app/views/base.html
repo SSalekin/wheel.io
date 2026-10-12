@@ -47,10 +47,10 @@
         <input type="hidden" name="token" value="{{ session.token }}">
         <label class="attach-button" title="Attach images">
           <span aria-hidden="true">&#128206;</span>
-          <input type="file" name="files" id="file-input" multiple accept="image/png,image/jpeg,image/webp">
+          <input type="file" name="files" id="file-input" multiple accept="image/png,image/jpeg,image/webp" aria-label="Attach images">
         </label>
         <input type="text" name="message" class="chat-input" id="chat-input"
-               placeholder="type a message…" autocomplete="off">
+               placeholder="type a message…" aria-label="Message" autocomplete="off">
         <button type="submit" class="send-button" title="Send">&#10148;</button>
       </form>
     </footer>
