@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from app.models import Entry, Table, TableColumn, WheelSession
-from app.services.intent_router import interpret
+from app.services.intent_router import _degrade, interpret
 
 API_URL = (
     "https://generativelanguage.googleapis.com/v1beta"
@@ -133,4 +133,21 @@ def test_gemini_empty_entries_degrades():
 
     assert intent.action == "clarify"
     assert intent.question == CLARIFY_DEFAULT
+    assert warnings == [WARNING]
+
+
+def test_degrade_single_image_is_create_image_with_warning():
+    # The image fast-path normally short-circuits before Gemini, so the
+    # degrade branches are pinned directly: unreachable AI plus one
+    # attached image still yields create_image + the exact warning.
+    intent, warnings = _degrade("please pick students for me", 1)
+
+    assert intent.action == "create_image"
+    assert warnings == [WARNING]
+
+
+def test_degrade_two_images_is_create_images_with_warning():
+    intent, warnings = _degrade("please pick students for me", 2)
+
+    assert intent.action == "create_images"
     assert warnings == [WARNING]

@@ -268,11 +268,12 @@ def _classify_followup(message: str) -> Intent | None:
         return Intent(action="switch_column", column=match.group("column").strip())
     if _RESET_RE.search(message):
         return Intent(action="reset")
-    if _SPIN_RE.search(message):
-        return Intent(action="spin")
+    # "add" wins over a trailing spin/go: "add Bob and go home" adds Bob.
     match = _ADD_RE.search(message)
     if match:
         return Intent(action="add", entries=_split_items(match.group("body")))
+    if _SPIN_RE.search(message):
+        return Intent(action="spin")
     return None
 
 

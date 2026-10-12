@@ -46,6 +46,45 @@ def _gradient_png(width: int = 100, height: int = 100):
     return image, buf.tobytes()
 
 
+def _install_spy_detector(
+    monkeypatch,
+    *,
+    detections=None,
+    create_error=None,
+    detect_error=None,
+    recorded=None,
+):
+    """Install a spy cv2.FaceDetectorYN.
+
+    ``detections`` is the row array detect() returns; ``create_error``
+    makes construction raise; ``detect_error`` makes detection raise;
+    ``recorded`` captures the create/setInputSize/detect arguments.
+    """
+
+    class _SpyDetector:
+        @staticmethod
+        def create(model_path, config, size):
+            if recorded is not None:
+                recorded["model_path"] = model_path
+                recorded["size"] = size
+            if create_error is not None:
+                raise create_error
+            return _SpyDetector()
+
+        def setInputSize(self, size):
+            if recorded is not None:
+                recorded["input_size"] = size
+
+        def detect(self, image):
+            if recorded is not None:
+                recorded["image"] = image
+            if detect_error is not None:
+                raise detect_error
+            return None, detections
+
+    monkeypatch.setattr(cv2, "FaceDetectorYN", _SpyDetector)
+
+
 def test_crop_faces_margins():
     image, data = _gradient_png()
 
@@ -149,18 +188,9 @@ def test_detect_face_boxes_survives_detector_failure(monkeypatch):
     # degrade to "no faces", never crash the chat route.
     _, image_bytes = _gradient_png(width=8, height=8)
 
-    class _RaisingDetector:
-        @staticmethod
-        def create(model_path, config, size):
-            return _RaisingDetector()
-
-        def setInputSize(self, size):
-            pass
-
-        def detect(self, image):
-            raise OverflowError("cannot convert float infinity to integer")
-
-    monkeypatch.setattr(cv2, "FaceDetectorYN", _RaisingDetector)
+    _install_spy_detector(
+        monkeypatch, detect_error=OverflowError("cannot convert float infinity")
+    )
 
     assert faces.detect_face_boxes(image_bytes) == []
 
@@ -170,26 +200,18 @@ def test_detect_face_boxes_filters_garbage_boxes(monkeypatch):
     # become boxes — they used to wipe the wheel to empty, silently.
     _, image_bytes = _gradient_png(width=320, height=240)
 
-    class _GarbageDetector:
-        @staticmethod
-        def create(model_path, config, size):
-            return _GarbageDetector()
-
-        def setInputSize(self, size):
-            pass
-
-        def detect(self, image):
-            return None, np.array(
-                [
-                    # garbage row: infinite/huge coords, zero size
-                    [1e30, 1e30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.9],
-                    # real row (slightly out of bounds — crops clip later)
-                    [-5, -5, 40, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95],
-                ],
-                dtype=np.float32,
-            )
-
-    monkeypatch.setattr(cv2, "FaceDetectorYN", _GarbageDetector)
+    _install_spy_detector(
+        monkeypatch,
+        detections=np.array(
+            [
+                # garbage row: infinite/huge coords, zero size
+                [1e30, 1e30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.9],
+                # real row (slightly out of bounds — crops clip later)
+                [-5, -5, 40, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95],
+            ],
+            dtype=np.float32,
+        ),
+    )
 
     assert faces.detect_face_boxes(image_bytes) == [(-5, -5, 40, 40)]
 
@@ -219,21 +241,13 @@ def test_detect_face_boxes_wiring(monkeypatch):
     _, image_bytes = _gradient_png(width=320, height=240)
     recorded = {}
 
-    class _SpyDetector:
-        @staticmethod
-        def create(model_path, config, size):
-            recorded["model_path"] = model_path
-            recorded["size"] = size
-            return _SpyDetector()
-
-        def setInputSize(self, size):
-            recorded["input_size"] = size
-
-        def detect(self, image):
-            recorded["image"] = image
-            return None, np.array([[10, 10, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95]], dtype=np.float32)
-
-    monkeypatch.setattr(cv2, "FaceDetectorYN", _SpyDetector)
+    _install_spy_detector(
+        monkeypatch,
+        detections=np.array(
+            [[10, 10, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95]], dtype=np.float32
+        ),
+        recorded=recorded,
+    )
 
     boxes = faces.detect_face_boxes(image_bytes)
 
@@ -277,22 +291,16 @@ def test_detect_face_boxes_filters_low_confidence(monkeypatch):
     # YuNet: low-confidence detections must be filtered out.
     _, image_bytes = _gradient_png(width=200, height=200)
 
-    class _SpyDetector:
-        @staticmethod
-        def create(model_path, config, size):
-            return _SpyDetector()
-
-        def setInputSize(self, size):
-            pass
-
-        def detect(self, image):
-            # Two faces: one high confidence, one low
-            return None, np.array([
+    _install_spy_detector(
+        monkeypatch,
+        detections=np.array(
+            [
                 [10, 10, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95],  # keep
                 [100, 100, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.30],  # filter
-            ], dtype=np.float32)
-
-    monkeypatch.setattr(cv2, "FaceDetectorYN", _SpyDetector)
+            ],
+            dtype=np.float32,
+        ),
+    )
 
     boxes = faces.detect_face_boxes(image_bytes)
     assert boxes == [(10, 10, 50, 50)]
@@ -302,20 +310,7 @@ def test_detect_face_boxes_missing_model_returns_empty(monkeypatch, tmp_path):
     # If the model file doesn't exist, detection should fail gracefully.
     _, image_bytes = _gradient_png(width=200, height=200)
 
-    class _SpyDetector:
-        @staticmethod
-        def create(model_path, config, size):
-            if "nonexistent" in model_path:
-                raise RuntimeError("model not found")
-            return _SpyDetector()
-
-        def setInputSize(self, size):
-            pass
-
-        def detect(self, image):
-            return None, None
-
-    monkeypatch.setattr(cv2, "FaceDetectorYN", _SpyDetector)
+    _install_spy_detector(monkeypatch, create_error=RuntimeError("model not found"))
     monkeypatch.setattr(faces, "_MODEL_PATH", str(tmp_path / "nonexistent.onnx"))
 
     assert faces.detect_face_boxes(image_bytes) == []

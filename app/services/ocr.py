@@ -32,10 +32,14 @@ def read_table(image_bytes: bytes) -> Table | None:
     if image is None:
         return None
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    scale = 1
     if gray.shape[1] < UPSCALE_BELOW_WIDTH:
         gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        scale = 2
     words = _extract_words(gray)
-    return _build_table(words)
+    # The gap threshold means REAL pixels: in upscaled coordinates the
+    # same real space is twice as wide, so the threshold doubles with it.
+    return _build_table(words, min_gap=MIN_COLUMN_GAP_PX * scale)
 
 
 def _extract_words(image: np.ndarray) -> list[dict]:
@@ -80,13 +84,19 @@ def _group_lines(words: list[dict]) -> list[list[dict]]:
     return lines
 
 
-def _column_segments(words: list[dict]) -> list[tuple[int, int]]:
+def _column_segments(
+    words: list[dict], min_gap: float = MIN_COLUMN_GAP_PX
+) -> list[tuple[int, int]]:
     """Split word boxes into columns by vertical projection.
 
     Occupancy is computed per x-column across all rows; text runs are
-    merged while the empty strip between them stays below
-    ``MIN_COLUMN_GAP_PX``. Returns half-open ``[start, end)`` x-ranges.
+    merged while the empty strip between them stays below ``min_gap``
+    (``MIN_COLUMN_GAP_PX`` of real image space — the caller scales it
+    when the image was upscaled). Returns half-open ``[start, end)``
+    x-ranges; no words ⇒ no segments.
     """
+    if not words:
+        return []
     right = max(w["left"] + w["width"] for w in words)
     occupancy = np.zeros(right + 1, dtype=bool)
     for word in words:
@@ -102,14 +112,16 @@ def _column_segments(words: list[dict]) -> list[tuple[int, int]]:
         while x <= right and occupancy[x]:
             x += 1
         # x is the first empty column after this text run (or past the end).
-        if segments and start - segments[-1][1] < MIN_COLUMN_GAP_PX:
+        if segments and start - segments[-1][1] < min_gap:
             segments[-1] = (segments[-1][0], x)  # strip too narrow to split
         else:
             segments.append((start, x))
     return segments
 
 
-def _build_table(words: list[dict]) -> Table | None:
+def _build_table(
+    words: list[dict], min_gap: float = MIN_COLUMN_GAP_PX
+) -> Table | None:
     """Assemble word boxes into a ``Table``.
 
     Multi-column tables take the first line as the header; a
@@ -119,7 +131,7 @@ def _build_table(words: list[dict]) -> Table | None:
     if not words:
         return None
     lines = _group_lines(words)
-    segments = _column_segments(words)
+    segments = _column_segments(words, min_gap)
 
     rows: list[list[str]] = []
     for line in lines:

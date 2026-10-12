@@ -245,3 +245,12 @@ def test_steer_constants():
         "selfie",
         "headshot",
     }
+
+
+def test_add_beats_trailing_spin_or_go():
+    # Audit #9: "spin|go" was checked before "add", so "add Bob and go
+    # home" spun the wheel instead of adding Bob.
+    assert classify_message("add Bob and go home", 0).action == "add"
+    # Plain spin/go messages keep their meaning.
+    assert classify_message("spin the wheel", 0).action == "spin"
+    assert classify_message("go", 0).action == "spin"

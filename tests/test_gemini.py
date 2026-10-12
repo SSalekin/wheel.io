@@ -189,3 +189,19 @@ def test_unparseable_body_raises():
 
     with pytest.raises(GeminiError):
         ask_intent("spin", dict(STATE_SUMMARY))
+
+
+@respx.mock
+def test_ask_intent_honors_model_override(monkeypatch):
+    # GEMINI_MODEL selects the wire target; the default model must not
+    # shadow the override.
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-custom-model")
+    route = respx.post(
+        "https://generativelanguage.googleapis.com/v1beta"
+        "/models/gemini-custom-model:generateContent"
+    ).respond(200, json=_candidate_body('{"action":"clarify"}'))
+
+    ask_intent("hello", dict(STATE_SUMMARY))
+
+    assert route.called

@@ -11,7 +11,7 @@ import pytest
 from PIL import Image
 
 from app.main import app
-from app.models import Table, TableColumn
+from app.models import Entry, Table, TableColumn
 
 # Byte-exact copy of the brief's upload-validation error.
 TOO_BIG = "That file is too big / unsupported — png, jpeg, or webp up to 10 MB."
@@ -148,6 +148,9 @@ def test_valid_png_builds_wheel_from_image(client, monkeypatch):
     )
     monkeypatch.setattr("app.services.images.read_table", lambda image_bytes: table)
     token = _page_token(client)
+    # A replaced wheel must also clear picks left from the previous one
+    # (the assertion below used to pass vacuously on an empty list).
+    app.state.store.get(token).picked = [Entry(id="p0", label="Zed")]
 
     response = client.post(
         "/chat",

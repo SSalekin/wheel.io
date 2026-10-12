@@ -58,7 +58,7 @@ def _degrade(message: str, image_count: int) -> tuple[Intent, list[str]]:
     elif image_count >= 2:
         intent = Intent(action="create_images")
     elif image_count == 1:
-        intent = Intent("create_image")
+        intent = Intent(action="create_image")
     else:
         intent = Intent(action="clarify", question=DEFAULT_CLARIFY)
     return intent, [_DEGRADED_WARNING]

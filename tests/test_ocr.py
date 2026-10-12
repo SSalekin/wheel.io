@@ -160,3 +160,33 @@ def test_blank_image_returns_none():
     Image.new("RGB", (400, 200), "white").save(buffer, format="PNG")
 
     assert read_table(buffer.getvalue()) is None
+
+
+def test_column_segments_empty_words_returns_empty():
+    # An image with no readable words must not crash the projection
+    # (max() over an empty sequence).
+    from app.services.ocr import _column_segments
+
+    assert _column_segments([]) == []
+
+
+def test_column_gap_threshold_scales_with_upscale(monkeypatch):
+    # The same 24 px gap in tesseract coords is 12 px of real space in a
+    # small image upscaled ×2 — below MIN_COLUMN_GAP_PX (20) of real
+    # space, so it is letter-spacing, not a column break. In a
+    # native-width image the same gap is a real split.
+    _patch_image_to_data(
+        monkeypatch,
+        _fake_data(
+            [
+                ("Ana", 95, 10, 10, 60, 30),
+                ("Bob", 95, 94, 10, 60, 30),  # gap x=70..93 (24 px)
+            ]
+        ),
+    )
+
+    native = read_table(_blank_png(width=1200, height=200))
+    upscaled = read_table(_blank_png(width=400, height=200))
+
+    assert native is not None and len(native.columns) == 2
+    assert upscaled is not None and len(upscaled.columns) == 1

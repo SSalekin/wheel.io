@@ -7,7 +7,7 @@ no network, no tesseract binary, and byte-exact error copy.
 
 import pytest
 
-from app.models import Table, TableColumn, WheelSession
+from app.models import Intent, Table, TableColumn, WheelSession
 from app.services import images
 from app.services.errors import UserFacingError
 from app.services.gemini import GeminiError
@@ -124,3 +124,42 @@ def test_face_steered_unreadable_still_raises(monkeypatch, session):
         images.process_single_image(b"png-bytes", "wheel the faces", session)
 
     assert excinfo.value.user_message == UNREADABLE
+
+
+def _face_reply(message, context):
+    return Intent(action="clarify", question="want the faces on the wheel?")
+
+
+def _text_reply(message, context):
+    return Intent(action="clarify", question="want the names column?")
+
+
+def test_ambiguous_steer_face_reply_takes_faces_branch(monkeypatch, session):
+    # Audit #10: "what's in this picture?" carries no steer; detection
+    # finds nothing; Gemini's tie-break replies with face language — the
+    # faces branch must win over the (usable) table.
+    table = Table(
+        columns=[TableColumn(header="Name", values=["Ana", "Bob"])], confidence=95.0
+    )
+    monkeypatch.setattr("app.services.images.read_table", lambda image_bytes: table)
+    monkeypatch.setattr(images, "detect_face_boxes", lambda image_bytes: [])
+    monkeypatch.setattr(images.gemini, "ask_intent", _face_reply)
+    monkeypatch.setattr(images.gemini, "ask_vision", lambda image_bytes, message: ["A person"])
+
+    result = images.process_single_image(b"png-bytes", "what\u2019s in this picture?", session)
+
+    assert [entry.label for entry in result.entries] == ["A person"]
+
+
+def test_ambiguous_steer_text_reply_takes_the_table(monkeypatch, session):
+    # The same steer with a text-flavoured reply keeps the table column.
+    table = Table(
+        columns=[TableColumn(header="Name", values=["Ana", "Bob"])], confidence=95.0
+    )
+    monkeypatch.setattr("app.services.images.read_table", lambda image_bytes: table)
+    monkeypatch.setattr(images, "detect_face_boxes", lambda image_bytes: [])
+    monkeypatch.setattr(images.gemini, "ask_intent", _text_reply)
+
+    result = images.process_single_image(b"png-bytes", "what\u2019s in this picture?", session)
+
+    assert [entry.label for entry in result.entries] == ["Ana", "Bob"]
