@@ -75,10 +75,13 @@ def _degrade(message: str, image_count: int) -> tuple[Intent, list[str]]:
 def _column_named_in(message: str, table: Table | None) -> str | None:
     """The one column header ``message`` names outright, if exactly one.
 
-    Punctuation is noise (OCR prints "Lecturer.", chat adds "?"): both
-    sides are normalized before comparing. Naming zero or several
-    headers stays ambiguous and falls through to the normal flow — the
-    rules, then Gemini when reachable — rather than guessing.
+    Matching is punctuation-insensitive and phrase-aware: headers are
+    word sequences ("Group name", "Opening date") looked up as
+    contiguous runs inside the normalized message, so "which column is
+    Group name?" names it while "Group name or Lecturer" names two —
+    zero or several matches stay ambiguous and fall through to the
+    normal flow — the rules, then Gemini when reachable — rather than
+    guessing.
     """
     if table is None:
         return None
@@ -86,14 +89,19 @@ def _column_named_in(message: str, table: Table | None) -> str | None:
     def normalized(text: str) -> str:
         return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
 
-    tokens = set(normalized(message).split())
+    words = normalized(message).split()
     matches = [
         column.header
         for column in table.columns
         if column.header
-        and (
-            normalized(column.header) in tokens
-            or normalized(message) == normalized(column.header)
-        )
+        and _contains_run(words, normalized(column.header).split())
     ]
     return matches[0] if len(matches) == 1 else None
+
+
+def _contains_run(words: list[str], phrase: list[str]) -> bool:
+    """Whether ``phrase`` appears as contiguous words inside ``words``."""
+    if not phrase:
+        return False
+    span = len(phrase)
+    return any(words[i : i + span] == phrase for i in range(len(words) - span + 1))

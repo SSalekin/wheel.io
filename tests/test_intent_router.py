@@ -211,3 +211,44 @@ def test_two_named_columns_stay_ambiguous():
 
     assert intent.action == "clarify"
     assert warnings == [WARNING]
+
+
+@respx.mock
+def test_multiword_header_named_twice_stays_ambiguous():
+    # "Opening date or Lecturer" names two real columns — the phrase
+    # header must count too, or the ambiguity silently resolves to the
+    # single-word one (found via the reported dashboard image, whose
+    # headers "Group name"/"Opening date" are phrases).
+    respx.post(API_URL).side_effect = httpx.TimeoutException("timed out")
+    session = _session()
+    session.source_table = Table(
+        columns=[
+            TableColumn(header="Opening date", values=["08/09/2025"]),
+            TableColumn(header="Lecturer", values=["Dr Smith"]),
+        ],
+        confidence=95.0,
+    )
+
+    intent, warnings = interpret("Opening date or Lecturer", 0, session)
+
+    assert intent.action == "clarify"
+    assert warnings == [WARNING]
+
+
+def test_multiword_header_inside_a_sentence_switches_locally():
+    # A phrase header buried in a sentence ("which column is Group
+    # name?") must still name its column offline.
+    session = _session()
+    session.source_table = Table(
+        columns=[
+            TableColumn(header="Group name", values=["BM1402"]),
+            TableColumn(header="Lecturer", values=["Dr Smith"]),
+        ],
+        confidence=95.0,
+    )
+
+    intent, warnings = interpret("which column is Group name?", 0, session)
+
+    assert intent.action == "switch_column"
+    assert intent.column == "Group name"
+    assert warnings == []
