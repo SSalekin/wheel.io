@@ -197,7 +197,8 @@ def test_detect_face_boxes_survives_detector_failure(monkeypatch):
 
 def test_detect_face_boxes_filters_garbage_boxes(monkeypatch):
     # Uninitialized-memory rows (huge coords, zero width/height) must not
-    # become boxes — they used to wipe the wheel to empty, silently.
+    # become boxes — they used to wipe the wheel to empty, silently. And
+    # the returned boxes always sit inside the frame (plan Task 4).
     _, image_bytes = _gradient_png(width=320, height=240)
 
     _install_spy_detector(
@@ -206,14 +207,17 @@ def test_detect_face_boxes_filters_garbage_boxes(monkeypatch):
             [
                 # garbage row: infinite/huge coords, zero size
                 [1e30, 1e30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.9],
-                # real row (slightly out of bounds — crops clip later)
+                # real row hanging off the top-left corner: clipped to
+                # its visible intersection (0,0)-(35,35)
                 [-5, -5, 40, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95],
+                # real row entirely outside the frame: dropped
+                [400, 400, 50, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95],
             ],
             dtype=np.float32,
         ),
     )
 
-    assert faces.detect_face_boxes(image_bytes) == [(-5, -5, 40, 40)]
+    assert faces.detect_face_boxes(image_bytes) == [(0, 0, 35, 35)]
 
 
 def test_faces_branch_with_no_crops_raises_unreadable(monkeypatch, session):
@@ -326,3 +330,18 @@ def test_detect_face_boxes_blank_image_returns_empty():
 
 def test_detect_face_boxes_unreadable_bytes_returns_empty():
     assert faces.detect_face_boxes(b"not an image") == []
+
+
+def test_real_yunet_handles_tiny_jpeg():
+    # The audit's crash repro: a real 2x5 JPEG must never raise
+    # (plan Task 4 Step 1) — "no faces" is a safe answer.
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (2, 5), (128, 128, 128)).save(buf, format="JPEG")
+
+    result = faces.detect_face_boxes(buf.getvalue())
+
+    assert isinstance(result, list)

@@ -67,7 +67,14 @@ def detect_face_boxes(image_bytes: bytes) -> list[tuple[int, int, int, int]]:
         confidence = float(face[14])
         if not math.isfinite(confidence) or confidence < _CONFIDENCE_THRESHOLD:
             continue
-        boxes.append((int(x), int(y), int(width), int(height)))
+        # YuNet boxes hang off the frame often; the contract is boxes
+        # that never do (plan Task 4): clip to the visible intersection
+        # and drop whatever lies entirely outside.
+        x0, y0 = max(x, 0.0), max(y, 0.0)
+        x1, y1 = min(x + width, float(w)), min(y + height, float(h))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        boxes.append((int(x0), int(y0), int(x1 - x0), int(y1 - y0)))
 
     return _merge_overlapping_boxes(boxes)
 

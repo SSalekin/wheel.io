@@ -80,7 +80,7 @@ State lives in memory, keyed by a per-page token: **refreshing the page starts o
 pytest -v
 ```
 
-171 tests: intent rules, OCR integration against real Tesseract, face-detection wiring, column selection, spin/state semantics, and end-to-end chat flows (the Gemini HTTP boundary is mocked with `respx`).
+181 tests: intent rules, OCR integration against real Tesseract, face-detection wiring, column selection, spin/state semantics, and end-to-end chat flows (the Gemini HTTP boundary is mocked with `respx`).
 
 ## Project structure
 

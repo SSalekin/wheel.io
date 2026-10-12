@@ -73,6 +73,7 @@ def test_spin_endpoint_with_removal_ships_pre_removal_snapshot(client):
 
     attrs = _wheel_data_attrs(response.text)
     assert "Ana" in attrs["data-spin-entries"]
+    assert attrs["data-pre-index"] == "0"
     assert "data-glow-index" not in attrs
 
 

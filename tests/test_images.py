@@ -48,6 +48,20 @@ def test_blank_column_raises_unreadable(monkeypatch, session):
         images.process_single_image(b"png-bytes", "wheel the names", session)
 
 
+def test_blank_column_escalates_to_vision(monkeypatch, session):
+    # Plan Task 3: a chosen all-blank column is an unreliable reading —
+    # Gemini vision gets the chance before the unreadable copy.
+    table = Table(columns=[TableColumn(header="Ana", values=[])], confidence=95.0)
+    monkeypatch.setattr("app.services.images.read_table", lambda image_bytes: table)
+    monkeypatch.setattr(
+        "app.services.gemini.ask_vision", lambda image, message: ["Bob", "Zoe"]
+    )
+
+    result = images.process_single_image(b"png-bytes", "wheel the names", session)
+
+    assert [entry.label for entry in result.entries] == ["Bob", "Zoe"]
+
+
 def test_single_column_table_becomes_entries(monkeypatch, session):
     # The OCR layer now keeps line 1 as data for headerless lists; the
     # picker's single-column path turns that into entries.

@@ -123,11 +123,19 @@ def _text_path(
     image_bytes: bytes, message: str, table: Table | None
 ) -> ImageResult:
     """Text path: a reliable table goes to the picker, else vision."""
-    if table is not None and table.columns and table.confidence >= MIN_CONFIDENCE:
-        return _from_table(table, message)
+    reliable = (
+        table is not None and table.columns and table.confidence >= MIN_CONFIDENCE
+    )
+    if reliable:
+        result = _from_table(table, message)
+        if result is not None:
+            return result
+        # Chosen column all-blank: unreliable reading (audit #3) —
+        # vision gets the chance before the unreadable copy
+        # (plan Task 3), exactly like a missing table below.
 
-    # Reading unreliable — no table, confidence < 60, or no columns
-    # (spec §7 step 5) — escalate to Gemini vision.
+    # Reading unreliable — no table, confidence < 60, no columns, or an
+    # all-blank chosen column (spec §7 step 5) — escalate to Gemini vision.
     try:
         labels = gemini.ask_vision(image_bytes, message)
     except GeminiError:
@@ -137,22 +145,24 @@ def _text_path(
             # the AI-unreachable ⚠️ when the picker needed no fallback
             # (spec: vision unavailable ⇒ best-effort with ⚠️).
             result = _from_table(table, message)
-            if not result.warnings:
-                result.warnings = [_AI_UNREACHABLE_WARNING]
-            return result
+            if result is not None:
+                if not result.warnings:
+                    result.warnings = [_AI_UNREACHABLE_WARNING]
+                return result
+            # Blank column and vision down: the honest copy.
         raise UserFacingError(_UNREADABLE)
     return ImageResult(entries=_entries(labels), table=None, warnings=[])
 
 
-def _from_table(table: Table, message: str) -> ImageResult:
+def _from_table(table: Table, message: str) -> ImageResult | None:
     """Reliable reading: the picker chooses a column; its warning travels.
 
-    A column with no non-blank values is not a wheel — the reading is
-    treated as unreadable so the user gets that copy instead of an
-    empty wheel (audit #3)."""
+    Returns ``None`` when the chosen column has no non-blank values — an
+    all-blank column is not a wheel but an unreliable reading, so the
+    caller escalates to vision (audit #3, plan Task 3)."""
     choice = pick_column(table, message)
     if not any(value.strip() for value in choice.values):
-        raise UserFacingError(_UNREADABLE)
+        return None
     warnings = [choice.warning] if choice.warning else []
     return ImageResult(
         entries=_entries(choice.values), table=table, warnings=warnings

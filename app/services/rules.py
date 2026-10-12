@@ -156,7 +156,9 @@ def _strip_line_prefix(line: str) -> str:
     prefix, rest = parts
     if not prefix.strip() or not rest.strip():
         return rest
-    if any(word.lower() in _VERB_TOKENS for word in prefix.split()):
+    # The verb test consumes _INSTRUCTION_RE itself (plan Task 7); the
+    # run-stop rule below keeps its explicit _VERB_TOKENS class.
+    if _INSTRUCTION_RE.search(prefix):
         return rest
     return line
 
