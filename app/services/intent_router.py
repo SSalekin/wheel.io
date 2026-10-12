@@ -6,7 +6,9 @@ degrades to a best-guess fallback plus the exact warning. The signature
 below is the frozen contract with the chat controller.
 """
 
-from app.models import Intent, WheelSession
+import re
+
+from app.models import Intent, Table, WheelSession
 from app.services import gemini
 from app.services.gemini import GeminiError
 from app.services.rules import classify_message, looks_like_list, parse_items
@@ -27,6 +29,12 @@ def interpret(
     intent = classify_message(message, image_count)
     if intent is not None:
         return intent, []
+
+    # The session's OCR'd table makes a bare column name decidable
+    # locally ("Lecturer" after the upload) — no AI required.
+    named = _column_named_in(message, session.source_table)
+    if named is not None:
+        return Intent(action="switch_column", column=named), []
 
     state_summary = {
         "entries": [entry.label for entry in session.entries],
@@ -62,3 +70,30 @@ def _degrade(message: str, image_count: int) -> tuple[Intent, list[str]]:
     else:
         intent = Intent(action="clarify", question=DEFAULT_CLARIFY)
     return intent, [_DEGRADED_WARNING]
+
+
+def _column_named_in(message: str, table: Table | None) -> str | None:
+    """The one column header ``message`` names outright, if exactly one.
+
+    Punctuation is noise (OCR prints "Lecturer.", chat adds "?"): both
+    sides are normalized before comparing. Naming zero or several
+    headers stays ambiguous and falls through to the normal flow — the
+    rules, then Gemini when reachable — rather than guessing.
+    """
+    if table is None:
+        return None
+
+    def normalized(text: str) -> str:
+        return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+    tokens = set(normalized(message).split())
+    matches = [
+        column.header
+        for column in table.columns
+        if column.header
+        and (
+            normalized(column.header) in tokens
+            or normalized(message) == normalized(column.header)
+        )
+    ]
+    return matches[0] if len(matches) == 1 else None

@@ -151,3 +151,63 @@ def test_degrade_two_images_is_create_images_with_warning():
 
     assert intent.action == "create_images"
     assert warnings == [WARNING]
+
+
+def test_bare_column_name_switches_locally_without_ai():
+    # A follow-up naming exactly one column of the session's table needs
+    # no AI: the OCR already read the headers, so the router switches
+    # locally instead of escalating (reported: "AI unreachable" when the
+    # user typed the column name after uploading).
+    session = _session()
+    session.source_table = Table(
+        columns=[
+            TableColumn(header="Lecturer", values=["Dr Smith"]),
+            TableColumn(header="Course", values=["Maths"]),
+        ],
+        confidence=95.0,
+    )
+
+    intent, warnings = interpret("Lecturer", 0, session)
+
+    assert intent.action == "switch_column"
+    assert intent.column == "Lecturer"
+    assert warnings == []
+
+
+def test_punctuated_column_name_still_switches_locally():
+    # OCR and sloppy typing add punctuation: "lecturer." must still name
+    # the Lecturer column.
+    session = _session()
+    session.source_table = Table(
+        columns=[
+            TableColumn(header="Lecturer", values=["Dr Smith"]),
+            TableColumn(header="Course", values=["Maths"]),
+        ],
+        confidence=95.0,
+    )
+
+    intent, warnings = interpret("Lecturer.", 0, session)
+
+    assert intent.action == "switch_column"
+    assert intent.column == "Lecturer"
+    assert warnings == []
+
+
+@respx.mock
+def test_two_named_columns_stay_ambiguous():
+    # Naming two columns is genuinely ambiguous: never guess locally —
+    # fall through to the normal flow (Gemini online, degrade offline).
+    respx.post(API_URL).side_effect = httpx.TimeoutException("timed out")
+    session = _session()
+    session.source_table = Table(
+        columns=[
+            TableColumn(header="Lecturer", values=["Dr Smith"]),
+            TableColumn(header="Course", values=["Maths"]),
+        ],
+        confidence=95.0,
+    )
+
+    intent, warnings = interpret("Course or Lecturer", 0, session)
+
+    assert intent.action == "clarify"
+    assert warnings == [WARNING]
