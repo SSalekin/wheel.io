@@ -143,6 +143,67 @@ def test_zero_faces_and_vision_down_raises_unreadable(monkeypatch, session):
     assert str(excinfo.value) == UNREADABLE
 
 
+def test_detect_face_boxes_survives_detector_failure(monkeypatch):
+    # YuNet raises on degenerate images (audit #4 — an 8×8 PNG once raised
+    # OverflowError and surfaced "Something went wrong."). Detection must
+    # degrade to "no faces", never crash the chat route.
+    _, image_bytes = _gradient_png(width=8, height=8)
+
+    class _RaisingDetector:
+        @staticmethod
+        def create(model_path, config, size):
+            return _RaisingDetector()
+
+        def setInputSize(self, size):
+            pass
+
+        def detect(self, image):
+            raise OverflowError("cannot convert float infinity to integer")
+
+    monkeypatch.setattr(cv2, "FaceDetectorYN", _RaisingDetector)
+
+    assert faces.detect_face_boxes(image_bytes) == []
+
+
+def test_detect_face_boxes_filters_garbage_boxes(monkeypatch):
+    # Uninitialized-memory rows (huge coords, zero width/height) must not
+    # become boxes — they used to wipe the wheel to empty, silently.
+    _, image_bytes = _gradient_png(width=320, height=240)
+
+    class _GarbageDetector:
+        @staticmethod
+        def create(model_path, config, size):
+            return _GarbageDetector()
+
+        def setInputSize(self, size):
+            pass
+
+        def detect(self, image):
+            return None, np.array(
+                [
+                    # garbage row: infinite/huge coords, zero size
+                    [1e30, 1e30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.9],
+                    # real row (slightly out of bounds — crops clip later)
+                    [-5, -5, 40, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.95],
+                ],
+                dtype=np.float32,
+            )
+
+    monkeypatch.setattr(cv2, "FaceDetectorYN", _GarbageDetector)
+
+    assert faces.detect_face_boxes(image_bytes) == [(-5, -5, 40, 40)]
+
+
+def test_faces_branch_with_no_crops_raises_unreadable(monkeypatch, session):
+    # Boxes detected but no crop survives: raise the unreadable copy
+    # instead of replacing the user's wheel with nothing.
+    monkeypatch.setattr(images, "detect_face_boxes", lambda image_bytes: [(10, 10, 50, 50)])
+    monkeypatch.setattr(images, "crop_faces", lambda image_bytes, boxes: [])
+
+    with pytest.raises(UserFacingError, match="Couldn't find anything readable"):
+        images.process_single_image(b"png-bytes", "wheel the faces", session)
+
+
 def test_detect_face_boxes_yunet_model_present():
     # The YuNet model file must ship with the app.
     model_path = Path(faces._MODEL_PATH).resolve()

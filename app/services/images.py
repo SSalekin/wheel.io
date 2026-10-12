@@ -180,8 +180,15 @@ def _faces_branch(
             raise UserFacingError(_UNREADABLE)
         return ImageResult(entries=_entries(labels), table=None, warnings=[])
 
+    crops = crop_faces(image_bytes, boxes)
+    if not crops:
+        # Boxes detected but no crop survived (degenerate detector
+        # output): failing loudly keeps the user's wheel from being
+        # silently replaced with nothing (audit #4).
+        raise UserFacingError(_UNREADABLE)
+
     entries: list[Entry] = []
-    for index, crop in enumerate(crop_faces(image_bytes, boxes)):
+    for index, crop in enumerate(crops):
         media_id = uuid4().hex
         session.media[media_id] = crop
         entries.append(

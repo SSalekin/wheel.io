@@ -9,6 +9,7 @@ Low-confidence detections (below ``_CONFIDENCE_THRESHOLD``) are
 filtered out. If the model fails to load, detection returns ``[]``.
 """
 
+import math
 import os
 from pathlib import Path
 
@@ -44,18 +45,29 @@ def detect_face_boxes(image_bytes: bytes) -> list[tuple[int, int, int, int]]:
     if detector is None:
         return []
 
-    _, faces = detector.detect(image)
-    if faces is None:
+    try:
+        _, detections = detector.detect(image)
+    except Exception:
+        # YuNet raises on degenerate inputs (an 8×8 PNG once raised
+        # OverflowError). "No faces" is a safe answer; a 500 is not.
+        return []
+    if detections is None:
         return []
 
-    # Filter by confidence and convert to (x, y, w, h) tuples
+    # Filter by confidence and convert to (x, y, w, h) tuples. Rows the
+    # model never initialized (huge/NaN coords, zero size) are dropped:
+    # a zero-area crop would silently empty the wheel downstream.
     boxes: list[tuple[int, int, int, int]] = []
-    for face in faces:
-        confidence = float(face[14])
-        if confidence < _CONFIDENCE_THRESHOLD:
+    for face in detections:
+        x, y, width, height = (float(face[0]), float(face[1]), float(face[2]), float(face[3]))
+        if not all(math.isfinite(value) for value in (x, y, width, height)):
             continue
-        x, y, w_face, h_face = int(face[0]), int(face[1]), int(face[2]), int(face[3])
-        boxes.append((x, y, w_face, h_face))
+        if width <= 0 or height <= 0:
+            continue
+        confidence = float(face[14])
+        if not math.isfinite(confidence) or confidence < _CONFIDENCE_THRESHOLD:
+            continue
+        boxes.append((int(x), int(y), int(width), int(height)))
 
     return _merge_overlapping_boxes(boxes)
 
