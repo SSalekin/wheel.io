@@ -2,6 +2,7 @@ from app.services.rules import (
     FACE_STEER,
     TEXT_STEER,
     classify_message,
+    duplicates_directive,
     parse_items,
 )
 
@@ -254,3 +255,82 @@ def test_add_beats_trailing_spin_or_go():
     # Plain spin/go messages keep their meaning.
     assert classify_message("spin the wheel", 0).action == "spin"
     assert classify_message("go", 0).action == "spin"
+
+
+# --- duplicates directive ("no duplicates please" / "skip duplicates") ---
+
+
+def test_classify_duplicates_standalone_on():
+    from app.models import Intent
+
+    assert classify_message("no duplicates please", 0) == Intent(
+        action="duplicates", enabled=True
+    )
+    assert classify_message("Skip duplicates", 0) == Intent(
+        action="duplicates", enabled=True
+    )
+    assert classify_message("no repeats", 0) == Intent(
+        action="duplicates", enabled=True
+    )
+    assert classify_message("don't repeat", 0) == Intent(
+        action="duplicates", enabled=True
+    )
+    assert classify_message('  "No duplicates!"  ', 0) == Intent(
+        action="duplicates", enabled=True
+    )
+
+
+def test_classify_duplicates_standalone_off():
+    from app.models import Intent
+
+    assert classify_message("allow duplicates", 0) == Intent(
+        action="duplicates", enabled=False
+    )
+    assert classify_message("duplicates are fine", 0) == Intent(
+        action="duplicates", enabled=False
+    )
+    assert classify_message("duplicates ok", 0) == Intent(
+        action="duplicates", enabled=False
+    )
+
+
+def test_classify_duplicates_never_hijacks_other_messages():
+    # A directive phrase riding along with a real instruction leaves the
+    # instruction in charge; the chat layer reads the phrase separately.
+    assert classify_message("spin, no duplicates", 0).action == "spin"
+    assert classify_message("add Ana, no duplicates", 0).action == "add"
+
+
+def test_classify_duplicates_leaves_remove_duplicates_alone():
+    # "remove duplicates" asks to remove an entry NAMED duplicates —
+    # never the directive (the ON phrases need no/skip/without).
+    assert classify_message("remove duplicates", 0).action == "remove"
+
+
+def test_parse_lifts_duplicates_directive_out_of_lists():
+    # The directive line/segment must never become a wheel entry.
+    assert parse_items("Ana, Bob, no duplicates please") == ["Ana", "Bob"]
+    assert parse_items("Ana\nBob\nNo duplicates please") == ["Ana", "Bob"]
+    assert parse_items("No duplicates please\nAna\nBob") == ["Ana", "Bob"]
+    assert parse_items("Ana, Bob, allow duplicates") == ["Ana", "Bob"]
+
+
+def test_parse_keeps_names_containing_duplicates_word():
+    # Only the directive phrases are lifted; an ordinary name that
+    # merely contains the word stays an entry.
+    assert parse_items("Duplicate Drew, Ana, Bob") == ["Duplicate Drew", "Ana", "Bob"]
+
+
+def test_create_with_directive_line_builds_list_without_it():
+    intent = classify_message("No duplicates please\nAna\nBob", 0)
+    assert intent.action == "create_text"
+    assert intent.entries == ["Ana", "Bob"]
+
+
+def test_duplicates_directive_helper():
+    assert duplicates_directive("hey, no duplicates please") is True
+    assert duplicates_directive("allow duplicates") is False
+    assert duplicates_directive("hello there") is None
+    assert duplicates_directive("wheel: Ana, Bob") is None
+    # Both phrases present: the ON phrase wins.
+    assert duplicates_directive("no duplicates — wait, allow duplicates") is True

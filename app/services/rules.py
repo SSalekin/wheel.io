@@ -77,6 +77,23 @@ _RESET_RE = re.compile(r"\b(?:reset|clear)\b", re.IGNORECASE)
 _SPIN_RE = re.compile(r"\b(?:spin|go)\b", re.IGNORECASE)
 _ADD_RE = re.compile(r"\badd\b\s*(?P<body>.*)", re.IGNORECASE | re.DOTALL)
 
+# "No duplicates" directives: phrases that toggle skip-duplicates mode
+# (the remove-picked behavior) instead of being list content. The ON
+# side needs no/skip/without next to "duplicate(s)" — so "remove
+# duplicates" (removing an entry NAMED duplicates) never matches.
+_DUPLICATES_ON_RE = re.compile(
+    r"\b(?:no|skip|without)\s+duplicates?\b"
+    r"|\bno\s+repeats?\b"
+    r"|\b(?:don'?t|do\s+not)\s+repeat\b",
+    re.IGNORECASE,
+)
+_DUPLICATES_OFF_RE = re.compile(
+    r"\ballow\s+duplicates?\b"
+    r"|\bduplicates?\s+(?:are\s+)?(?:fine|ok|good)\b",
+    re.IGNORECASE,
+)
+_DIRECTIVE_REMAINDER_STRIP = " \t\r\n.,!?…;:\"'“”‘’"
+
 _SPLIT_RE = re.compile(r"\n|,|\band\b", re.IGNORECASE)
 
 # Column headers that point at tabular/text data (reused by Task 10).
@@ -110,22 +127,54 @@ FACE_STEER: set[str] = {
 }
 
 
+def duplicates_directive(message: str) -> bool | None:
+    """``True``/``False`` when ``message`` carries a duplicates directive,
+    else ``None``.
+
+    ON ("no duplicates", "skip duplicates", "no repeats", "don't
+    repeat" — "please" welcome anywhere) asks for skip-duplicates mode;
+    OFF ("allow duplicates", "duplicates are fine/ok") releases it. Both
+    present: ON wins.
+    """
+    if _DUPLICATES_ON_RE.search(message):
+        return True
+    if _DUPLICATES_OFF_RE.search(message):
+        return False
+    return None
+
+
+def _directive_remainder(text: str) -> str:
+    """``text`` with every directive phrase and filler "please" removed."""
+    remainder = _DUPLICATES_ON_RE.sub("", text)
+    remainder = _DUPLICATES_OFF_RE.sub("", remainder)
+    remainder = re.sub(r"\bplease\b", "", remainder, flags=re.IGNORECASE)
+    return remainder.strip(_DIRECTIVE_REMAINDER_STRIP)
+
+
+def _directive_only(segment: str) -> bool:
+    """Whether ``segment`` is nothing but a duplicates directive."""
+    return not _directive_remainder(segment)
+
+
 def parse_items(text: str) -> list[str]:
     """Extract candidate items from a chat message.
 
     Splits on newlines then commas, drops instruction language before a
     line's first ``:``/``：`` (a colon inside data — "9:30", "Bob: red
     team", a URL — survives whole), strips bullet/numbering markers, and
-    drops empties. An unambiguous instruction run fused to the first item
-    is stripped separately (see ``_strip_instruction_prefix``). When
-    nothing list-like survives, the whole message is kept as a single
-    item so a plain sentence is never split apart.
+    drops empties. A segment that is nothing but a duplicates directive
+    ("no duplicates please") is lifted out here — the chat layer reads
+    it from the raw message — so it never lands on the wheel. An
+    unambiguous instruction run fused to the first item is stripped
+    separately (see ``_strip_instruction_prefix``). When nothing
+    list-like survives, the whole message is kept as a single item so a
+    plain sentence is never split apart.
     """
     segments: list[str] = []
     for line in text.splitlines():
         for segment in _strip_line_prefix(line).split(","):
             segment = _LEADING_MARKER_RE.sub("", segment).strip()
-            if segment:
+            if segment and not _directive_only(segment):
                 segments.append(segment)
 
     # Instruction language precedes the first item ("make me a wheel with
@@ -215,10 +264,25 @@ def classify_message(message: str, image_count: int) -> Intent | None:
     too ambiguous), which later means "escalate to Gemini".
     """
     return (
-        _classify_create(message)
+        _classify_duplicates(message)
+        or _classify_create(message)
         or _classify_followup(message)
         or _classify_image(image_count)
     )
+
+
+def _classify_duplicates(message: str) -> Intent | None:
+    """A message that is nothing but a duplicates directive toggles the
+    skip-duplicates (remove-picked) mode.
+
+    The remainder after removing the phrases (and filler "please") must
+    be empty: "spin, no duplicates" is a spin, with the directive read
+    separately by the chat layer — never a toggle.
+    """
+    enabled = duplicates_directive(message)
+    if enabled is None or _directive_remainder(message):
+        return None
+    return Intent(action="duplicates", enabled=enabled)
 
 
 def _classify_create(message: str) -> Intent | None:

@@ -14,8 +14,10 @@ class Intent(BaseModel):
         "reset",
         "spin",
         "clarify",
+        "duplicates",
     ]
     entries: list[str] | None = None
     labels: list[str] | None = None
     column: str | None = None
     question: str | None = None
+    enabled: bool | None = None
