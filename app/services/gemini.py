@@ -14,6 +14,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.models import Intent, Table
+from app.services.mime import detect_mime
 
 _API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 _DEFAULT_MODEL = "gemini-2.5-flash"
@@ -80,7 +81,7 @@ def ask_vision(image: bytes, message: str) -> list[str]:
     """Extract labels from an image; always returns a non-empty ``list[str]``."""
     image_part = {
         "inline_data": {
-            "mime_type": _detect_mime(image),
+            "mime_type": detect_mime(image),
             "data": base64.b64encode(image).decode("ascii"),
         }
     }
@@ -104,21 +105,6 @@ def ask_vision(image: bytes, message: str) -> list[str]:
     ):
         raise GeminiError(f"Gemini vision reply is not a list of labels: {labels!r}")
     return labels
-
-
-def _detect_mime(image: bytes) -> str:
-    """Sniff the upload's mime from magic bytes; default to ``image/png``.
-
-    The app accepts PNG, JPEG and WEBP uploads; labeling one as another
-    makes Gemini reject the request, so the type travels with the bytes.
-    """
-    if image.startswith(b"\x89PNG"):
-        return "image/png"
-    if image.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if len(image) >= 12 and image.startswith(b"RIFF") and image[8:12] == b"WEBP":
-        return "image/webp"
-    return "image/png"
 
 
 def _generate(parts: list[dict]) -> str:

@@ -53,6 +53,13 @@ def _tiny_png() -> bytes:
     return buffer.getvalue()
 
 
+def _tiny_jpeg() -> bytes:
+    """A real 1×1 JPEG — the multi-upload path stores these bytes as-is."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (1, 1), "white").save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
 def test_each_image_becomes_entry(session):
     named = [
         ("student_a.png", b"first-bytes"),
@@ -118,6 +125,31 @@ def test_chat_dispatch_builds_wheel(client):
     assert all(entry.image_ref in session.media for entry in session.entries)
     # The regions that change (wheel pane, sidebar, go form) ship OOB.
     assert "hx-swap-oob" in response.text
+
+
+def test_multi_upload_serves_each_file_with_its_real_mime(client):
+    # The stored bytes are the user's (here: real JPEGs) — /media must
+    # label each by what it actually is, or the wheel's thumbnails are
+    # served as the wrong type.
+    token = _page_token(client)
+
+    response = client.post(
+        "/chat",
+        data={"token": token, "message": "avatars"},
+        files=[
+            ("files", ("ana.jpg", _tiny_jpeg(), "image/jpeg")),
+            ("files", ("bob.jpg", _tiny_jpeg(), "image/jpeg")),
+        ],
+    )
+
+    assert response.status_code == 200
+    session = app.state.store.get(token)
+    assert session is not None
+    for ref in [entry.image_ref for entry in session.entries]:
+        media = client.get(f"/media/{token}/{ref}")
+        assert media.status_code == 200
+        assert media.headers["content-type"] == "image/jpeg"
+        assert media.content.startswith(b"\xff\xd8\xff")
 
 
 def test_switch_after_photos_cannot_clobber_them(client, monkeypatch):

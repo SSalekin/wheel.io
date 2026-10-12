@@ -9,13 +9,17 @@ a label-only segment.
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
+from app.services.mime import detect_mime
+
 router = APIRouter()
 
 
 @router.get("/media/{token}/{media_id}")
 def media(token: str, media_id: str, request: Request) -> Response:
-    """Serve one stored image as PNG; unknown token or id ⇒ 404."""
+    """Serve one stored image with the mime its bytes actually carry;
+    unknown token or id ⇒ 404."""
     session = request.app.state.store.get(token)
     if session is None or media_id not in session.media:
         return Response(status_code=404)
-    return Response(content=session.media[media_id], media_type="image/png")
+    data = session.media[media_id]
+    return Response(content=data, media_type=detect_mime(data))
