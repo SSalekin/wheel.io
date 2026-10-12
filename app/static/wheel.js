@@ -15,6 +15,7 @@
   var LABEL_MAX = 18;   // draw-time truncation only; the data stays intact
   var TURNS = 5;        // extra full turns per spin
   var DURATION = 3500;  // ms: ≈5 full turns + settle
+  var MAX_THUMBS = 150; // photo cache cap: oldest entries evict first
 
   var canvas = null;
   var ctx = null;
@@ -23,6 +24,7 @@
   var spinToken = 0;
   var winningIndex = null;
   var confetti = [];
+  var confettiRunning = false;  // at most one animation loop ever runs
 
   function normalize(angle) {
     return ((angle % TAU) + TAU) % TAU;
@@ -32,35 +34,54 @@
     return label.length > LABEL_MAX ? label.slice(0, LABEL_MAX - 1) + "…" : label;
   }
 
-  var thumbs = {};  // image_url -> Image once ready; false once failed
+  var thumbs = new Map();  // image_url -> Image once ready; false once failed
 
   /* Cached, fully-decoded thumbnail for url (null until then).
    * First sight starts the load; load/error redraw so the wheel settles
-   * into photo or label-only without ever blocking the render. */
+   * into photo or label-only without ever blocking the render. The cache
+   * is bounded (MAX_THUMBS): the oldest URL evicts first. */
   function thumbFor(url) {
     if (!url) return null;
-    if (url in thumbs) {
-      var cached = thumbs[url];
+    if (thumbs.has(url)) {
+      var cached = thumbs.get(url);
       return cached && cached.complete && cached.naturalWidth > 0
         ? cached
         : null;
     }
     var img = new Image();
-    thumbs[url] = img;
+    thumbs.set(url, img);
+    if (thumbs.size > MAX_THUMBS) thumbs.delete(thumbs.keys().next().value);
     img.onload = function () { draw(); };
-    img.onerror = function () { thumbs[url] = false; draw(); };
+    img.onerror = function () { thumbs.set(url, false); draw(); };
     img.src = url;
     return null;
   }
 
+  /* True when the new entry list still shows at least one photo the old
+   * one showed — i.e. the cache is still wanted. A wheel replacement
+   * (new photos, or photos → text) shares nothing and drops the cache. */
+  function sharesPhotoWith(before, after) {
+    for (var i = 0; i < after.length; i++) {
+      var url = after[i] && after[i].image_url;
+      if (url) {
+        for (var j = 0; j < before.length; j++) {
+          if (before[j] && before[j].image_url === url) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /* Draw one photo into a square at the segment's mid-angle, clipped to
-   * that segment's wedge so neighbors stay untouched (spec §9). */
+   * that segment's wedge so neighbors stay untouched (spec §9).
+   * Returns true when a photo was drawn; false when the segment is too
+   * crowded for one (the caller falls back to the label). */
   function drawThumb(img, i, cx, cy, radius, delta) {
     var mid = (i + 0.5) * delta + rotation - HALF_PI;  // canvas angle
     var dist = radius * 0.62;
     // Square side: the wedge's chord at `dist`, never more than half r.
     var side = Math.min(radius * 0.5, 2 * dist * Math.sin(delta / 2) * 0.85);
-    if (side < 12) return;  // crowded wheel: labels only, still readable
+    if (side < 12) return false;  // crowded wheel: label instead, still readable
     var x = cx + Math.cos(mid) * dist;
     var y = cy + Math.sin(mid) * dist;
     // Contain-fit: the whole crop stays inside the square.
@@ -77,6 +98,7 @@
     ctx.clip();
     ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
     ctx.restore();
+    return true;
   }
 
   function draw() {
@@ -119,10 +141,12 @@
 
     // Photos: each entry's image clipped into its own equal-width
     // segment. Until an image loads — or if it fails to load — the
-    // segment simply keeps its palette fill and label.
+    // segment simply keeps its palette fill and label. A photo too
+    // crowded to fit leaves photoDrawn[i] false so its label shows.
+    var photoDrawn = [];
     for (i = 0; i < n; i++) {
       var thumb = thumbFor(entries[i] && entries[i].image_url);
-      if (thumb) drawThumb(thumb, i, cx, cy, radius, delta);
+      photoDrawn[i] = thumb ? drawThumb(thumb, i, cx, cy, radius, delta) : false;
     }
 
     // Winning segment glow
@@ -168,15 +192,18 @@
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = "#1f2430";
-    ctx.font = "600 13px system-ui, sans-serif";
+    // Font scales with the room the segment gives (arc length at the
+    // label radius): crowded wheels shrink labels instead of overlapping.
+    var fontPx = Math.max(8, Math.min(13, delta * radius * 0.2));
+    ctx.font = "600 " + fontPx + "px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.lineJoin = "round";
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(255,255,255,0.9)";
     for (i = 0; i < n; i++) {
-      // Skip label when a photo is present — the face crop is enough.
-      if (entries[i] && entries[i].image_url) continue;
+      // Skip the label when a photo was drawn — the face crop is enough.
+      if (photoDrawn[i]) continue;
       var mid = (i + 0.5) * delta + rotation;  // angle from 12 o'clock
       var flipped = Math.sin(mid) < 0;         // keep left-side labels upright
       var text = labelFor(String(entries[i].label || ""));
@@ -192,12 +219,32 @@
     }
   }
 
+  /* The Go button node is replaced by OOB swaps mid-spin, so the busy
+   * state and its undo always act on the CURRENT node — and the undo
+   * only touches a button still saying "Spinning..." (the server may
+   * have re-rendered it disabled for an emptied wheel). */
+  function setGoBusy(busy) {
+    var btn = document.querySelector(".go-button");
+    if (!btn) return;
+    if (busy) {
+      btn.disabled = true;
+      btn.textContent = "Spinning...";
+    } else if (btn.textContent === "Spinning...") {
+      btn.disabled = false;
+      btn.textContent = "Go";
+    }
+  }
+
   window.WheelIO = {
     /* Draw the given {label, image_url} entries at the current rotation.
      * `glow` (an index or null) marks the winning segment in these
      * entries; omitting it clears any previous glow. */
     render: function (next, glow) {
+      var before = entries;
       entries = Array.isArray(next) ? next : [];
+      // A wheel replacement shares no photos with the old wheel: drop
+      // the cache instead of hoarding dead Image objects.
+      if (!sharesPhotoWith(before, entries)) thumbs.clear();
       winningIndex = glow === undefined ? null : glow;
       // Wait a frame so the swapped canvas is in the DOM before drawing.
       requestAnimationFrame(function () {
@@ -205,7 +252,7 @@
       });
     },
 
-    /* Animate ≈5 turns + settle so `index`'s center lands at 12 o'clock. */
+  /* Animate ≈5 turns + settle so `index`'s center lands at 12 o'clock. */
     spinTo: function (index, done) {
       var n = entries.length;
       if (!n) {
@@ -219,12 +266,7 @@
       var target = start + TURNS * TAU + normalize(desired - start);
       var beganAt = null;
 
-      // Show spinner on Go button
-      var goBtn = document.querySelector(".go-button");
-      if (goBtn) {
-        goBtn.disabled = true;
-        goBtn.textContent = "Spinning...";
-      }
+      setGoBusy(true);
 
       requestAnimationFrame(function frame(now) {
         if (token !== spinToken) return;  // a newer spin superseded this one
@@ -239,10 +281,7 @@
         rotation = normalize(target);
         draw();
         launchConfetti();
-        if (goBtn) {
-          goBtn.disabled = false;
-          goBtn.textContent = "Go";
-        }
+        setGoBusy(false);
         if (done) done();
       });
     }
@@ -257,7 +296,8 @@
     }
   }
 
-  /* Simple confetti burst */
+  /* Simple confetti burst — repeated bursts extend the running loop
+   * instead of stacking a second one. */
   function launchConfetti() {
     var colors = ["#4f46e5", "#ffd9d9", "#ffe6cc", "#ddf5d5", "#d3ecfb", "#f4d9ff"];
     for (var i = 0; i < 40; i++) {
@@ -271,11 +311,17 @@
         life: 1
       });
     }
-    requestAnimationFrame(drawConfetti);
+    if (!confettiRunning) {
+      confettiRunning = true;
+      requestAnimationFrame(drawConfetti);
+    }
   }
 
   function drawConfetti() {
-    if (!confetti.length) return;
+    if (!confetti.length) {
+      confettiRunning = false;
+      return;
+    }
     draw();
     for (var i = confetti.length - 1; i >= 0; i--) {
       var c = confetti[i];
@@ -349,18 +395,31 @@
     WheelIO.render(parseEntries(initial.dataset.entries));
   }
 
-  /* File preview thumbnails in the chat bar */
+  /* File preview thumbnails in the chat bar. Every preview is an object
+   * URL; each one is revoked when its preview dies (remove, re-select,
+   * submit) so the blobs don't outlive the page. */
   (function () {
     var fileInput = document.getElementById("file-input");
     var previewContainer = document.getElementById("file-preview");
     if (!fileInput || !previewContainer) return;
 
-    fileInput.addEventListener("change", function () {
+    var previewUrls = [];  // object URLs currently shown
+
+    function clearPreviews() {
+      // Revoking an already-revoked URL is a no-op, so remove-clicks
+      // may revoke early without bookkeeping here.
+      previewUrls.forEach(function (url) { URL.revokeObjectURL(url); });
+      previewUrls = [];
       previewContainer.innerHTML = "";
+    }
+
+    fileInput.addEventListener("change", function () {
+      clearPreviews();
       var files = Array.prototype.slice.call(fileInput.files);
       files.forEach(function (file, index) {
         if (!file.type.startsWith("image/")) return;
         var url = URL.createObjectURL(file);
+        previewUrls.push(url);
         var item = document.createElement("div");
         item.className = "file-preview-item";
         var img = document.createElement("img");
@@ -371,6 +430,7 @@
         removeBtn.innerHTML = "&times;";
         removeBtn.title = "Remove";
         removeBtn.addEventListener("click", function () {
+          URL.revokeObjectURL(url);
           var dt = new DataTransfer();
           var remaining = Array.prototype.slice.call(fileInput.files).filter(function (_, i) { return i !== index; });
           remaining.forEach(function (f) { dt.items.add(f); });
@@ -385,7 +445,7 @@
     });
 
     document.getElementById("chat-form").addEventListener("submit", function () {
-      previewContainer.innerHTML = "";
+      clearPreviews();
     });
   })();
 
