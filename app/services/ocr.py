@@ -19,13 +19,23 @@ CONFIG = "--psm 6"
 MIN_COLUMN_GAP_PX = 20
 # Small images get a ×2 boost before OCR for better recognition.
 UPSCALE_BELOW_WIDTH = 1000
+# Rows darker than this mean form an inverted band (light-on-dark
+# headers, dark-mode tables). Full-page binarization drowns such text
+# — it read a white-on-navy header row as garbage ('a', 'ee'), which
+# then false-matched the column picker.
+DARK_BAND_MEAN = 128
+# A dark run shorter than this is a divider line, not a text band.
+MIN_BAND_HEIGHT_PX = 8
+# Dark bands get their own ×3 boost — their text is usually small.
+BAND_UPSCALE = 3
 
 
 def read_table(image_bytes: bytes) -> Table | None:
     """Decode ``image_bytes`` and return the detected table.
 
     Pipeline: decode (cv2) → grayscale → upscale ×2 if width < 1000 →
-    Tesseract word extraction → line grouping → column split → cells.
+    Tesseract word extraction → dark-band pass (inverted headers) →
+    line grouping → column split → cells.
     Returns ``None`` when the image yields no readable words.
     """
     image = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
@@ -37,6 +47,10 @@ def read_table(image_bytes: bytes) -> Table | None:
         gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
         scale = 2
     words = _extract_words(gray)
+    # Dark bands (white-on-navy headers) get a second, band-local pass:
+    # its words replace whatever full-page OCR hallucinated in the band.
+    bands = _dark_bands(gray)
+    words = _merge_words(words, _band_words(gray, bands), bands)
     # The gap threshold means REAL pixels: in upscaled coordinates the
     # same real space is twice as wide, so the threshold doubles with it.
     return _build_table(words, min_gap=MIN_COLUMN_GAP_PX * scale)
@@ -64,6 +78,76 @@ def _extract_words(image: np.ndarray) -> list[dict]:
             }
         )
     return words
+
+
+def _dark_bands(gray: np.ndarray) -> list[tuple[int, int]]:
+    """Contiguous runs of dark rows at least ``MIN_BAND_HEIGHT_PX`` tall.
+
+    These are inverted regions — light-on-dark header bands, dark-mode
+    tables — whose text full-page binarization cannot read.
+    """
+    dark_rows = gray.mean(axis=1) < DARK_BAND_MEAN
+    bands: list[tuple[int, int]] = []
+    start: int | None = None
+    for y, is_dark in enumerate(dark_rows):
+        if is_dark and start is None:
+            start = y
+        elif not is_dark and start is not None:
+            if y - start >= MIN_BAND_HEIGHT_PX:
+                bands.append((start, y))
+            start = None
+    if start is not None and len(dark_rows) - start >= MIN_BAND_HEIGHT_PX:
+        bands.append((start, len(dark_rows)))
+    return bands
+
+
+def _band_words(gray: np.ndarray, bands: list[tuple[int, int]]) -> list[dict]:
+    """Words OCR'd band-locally: Otsu on the band strip alone.
+
+    A dark strip's histogram is dominated by its background, so a
+    band-local threshold separates the light text that the full-page
+    pass drowns. Coordinates are scaled back into ``gray``'s space.
+    """
+    words: list[dict] = []
+    for start, end in bands:
+        strip = gray[start:end]
+        _, binary = cv2.threshold(
+            strip, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        big = cv2.resize(
+            binary, None, fx=BAND_UPSCALE, fy=BAND_UPSCALE,
+            interpolation=cv2.INTER_CUBIC,
+        )
+        for word in _extract_words(big):
+            word["left"] //= BAND_UPSCALE
+            word["top"] = word["top"] // BAND_UPSCALE + start
+            word["width"] //= BAND_UPSCALE
+            word["height"] //= BAND_UPSCALE
+            words.append(word)
+    return words
+
+
+def _merge_words(
+    page_words: list[dict],
+    band_words: list[dict],
+    bands: list[tuple[int, int]],
+) -> list[dict]:
+    """Band OCR is authoritative inside dark bands.
+
+    Full-page binarization cannot read light-on-dark text, so whatever
+    it produced over a band's rows — conf-15 'a'/'ee' fragments that
+    would false-match the column picker — is dropped; words elsewhere
+    (body rows) stay untouched.
+    """
+    merged = []
+    for word in page_words:
+        bottom = word["top"] + word["height"]
+        over_band = any(
+            word["top"] < end and bottom > start for start, end in bands
+        )
+        if not over_band:
+            merged.append(word)
+    return merged + band_words
 
 
 def _group_lines(words: list[dict]) -> list[list[dict]]:

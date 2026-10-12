@@ -190,3 +190,71 @@ def test_column_gap_threshold_scales_with_upscale(monkeypatch):
 
     assert native is not None and len(native.columns) == 2
     assert upscaled is not None and len(upscaled.columns) == 1
+
+
+def _render_inverted_header() -> bytes:
+    """PNG with a white-on-navy header band, like real dashboard exports.
+
+    Reported bug image: the header row sat on a dark band and full-page
+    binarization rendered it as garbage ('a', 'ee'), starving every
+    downstream column match.
+    """
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", 40)
+    except OSError:
+        font = ImageFont.load_default(size=40)
+    image = Image.new("RGB", (1100, 320), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([0, 0, 1100, 70], fill=(40, 40, 120))
+    draw.text((40, 15), "Name", fill="white", font=font)
+    draw.text((400, 15), "ID", fill="white", font=font)
+    for index, (name, ident) in enumerate([("Ana", "A1"), ("Bob", "B2")]):
+        y = 100 + index * 70
+        draw.text((40, y), name, fill="black", font=font)
+        draw.text((400, y), ident, fill="black", font=font)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+@needs_tesseract
+def test_inverted_header_row_roundtrip():
+    # White-on-navy headers must read as headers, not as garbage
+    # fragments that false-match the column picker ('a' in any message).
+    table = read_table(_render_inverted_header())
+
+    assert table is not None
+    assert table.headers == ["Name", "ID"]
+    assert table.get_column("Name").values == ["Ana", "Bob"]
+
+
+def test_dark_bands_finds_contiguous_dark_rows():
+    # A dark header band is a run of dark rows; a thin dark divider
+    # line is not worth OCRing.
+    import numpy as np
+
+    from app.services.ocr import _dark_bands
+
+    gray = np.full((100, 200), 255, dtype=np.uint8)
+    gray[10:40] = 40
+    gray[60:63] = 30
+
+    assert _dark_bands(gray) == [(10, 40)]
+
+
+def test_band_words_replace_garbage_in_dark_bands():
+    # Band OCR is authoritative over a band's ROWS: fragments full-page
+    # OCR produced there (conf-15 'a'/'ee' noise) must not survive to
+    # false-match the picker — even when they sit beside a real band
+    # word; body words below the band stay untouched.
+    from app.services.ocr import _merge_words
+
+    page = [
+        {"text": "ee", "conf": 32, "left": 460, "top": 10, "width": 30, "height": 25},
+        {"text": "NhungTTH37", "conf": 65, "left": 520, "top": 120, "width": 120, "height": 25},
+    ]
+    band = [{"text": "Lecturer", "conf": 96, "left": 500, "top": 8, "width": 140, "height": 30}]
+
+    merged = _merge_words(page, band, bands=[(5, 45)])
+
+    assert sorted(word["text"] for word in merged) == ["Lecturer", "NhungTTH37"]
