@@ -91,7 +91,7 @@ def test_chat_spin_flow(client):
     body = response.text
     assert "🎉" in body
     assert re.search(r'<div class="bubble system">🎉 (Ana|Bob|Chi)</div>', body)
-    assert 'id="banner"' in body  # OOB banner region
+    assert 'id="banner"' not in body  # banner deferred: served by GET /banner once the wheel stops
     assert 'data-animate="1"' in body
     assert re.search(r'data-pre-index="\d+"', body)
     assert 'id="wheel-pane"' in body

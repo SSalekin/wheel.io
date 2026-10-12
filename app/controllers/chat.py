@@ -248,13 +248,12 @@ def chat(
                 pre_spin_index if any(e is winner for e in session.entries) else None
             )
             html += bubble(request, "system", f"🎉 {winner.label}")
-            # Chat responses land in #chat-log, so the #banner region swaps out
-            # of band — the banner partial is the region's content.
-            html += (
-                '<div id="banner" class="banner" hx-swap-oob="true">'
-                + render_partial(request, "partials/banner.html", {"label": winner.label})
-                + "</div>"
-            )
+            # The banner is deferred exactly like POST /spin: the announcement
+            # rides the session (GET /banner), and wheel.js fetches it once
+            # the wheel stops — an OOB swap here would land mid-spin and give
+            # the answer away. The bubble above is the chat transcript, not
+            # the banner region.
+            session.pending_banner = winner.label
             html += _wheel_regions(
                 request,
                 session,

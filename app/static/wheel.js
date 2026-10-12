@@ -373,13 +373,24 @@
     if (confetti.length) requestAnimationFrame(drawConfetti);
   }
 
-  /* Re-fetch the picked sidebar from the server. The spin responses no
-     longer ship it OOB — the winner should appear only once the wheel
-     has stopped, so the done-callback of the spin asks for it. */
-  function refreshPicked() {
+  /* Re-fetch the post-spin regions from the server. The spin responses no
+     longer ship them OOB — the winner should appear only once the wheel
+     has stopped, so the done-callback of the spin asks for them: the
+     winner announcement (GET /banner — it used to ride the spin response
+     and give the answer away within milliseconds) and the picked sidebar
+     (GET /picked). */
+  function refreshAfterSpin() {
     var tokenInput = document.querySelector('#chat-form input[name="token"]');
     if (!tokenInput || !window.fetch) return;
-    fetch("/picked?token=" + encodeURIComponent(tokenInput.value))
+    var token = encodeURIComponent(tokenInput.value);
+    fetch("/banner?token=" + token)
+      .then(function (res) { return res.text(); })
+      .then(function (html) {
+        var banner = document.getElementById("banner");
+        if (banner) banner.innerHTML = html;
+      })
+      .catch(function () { /* stale token / network hiccup: keep the banner as-is */ });
+    fetch("/picked?token=" + token)
       .then(function (res) { return res.text(); })
       .then(function (html) {
         var fresh = document.createRange
@@ -414,7 +425,7 @@
       WheelIO.spinTo(isNaN(index) ? 0 : index, function () {
         // The final entries land only once the wheel stops, glow included.
         WheelIO.render(next, isNaN(glow) ? null : glow);
-        refreshPicked();  // winner lands in the sidebar only when the wheel stops
+        refreshAfterSpin();  // banner + sidebar land only when the wheel stops
       });
     } else {
       WheelIO.render(next);

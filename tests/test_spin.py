@@ -89,20 +89,69 @@ def test_spin_without_removal_glows_the_winner(client):
     assert attrs["data-glow-index"] == attrs["data-pre-index"]
 
 
-def test_spin_endpoint_updates_banner_and_wheel(client):
+def test_spin_endpoint_updates_wheel_and_defers_banner(client):
+    # The winner announcement must not ride along with the spin response:
+    # it would land in #banner within milliseconds, giving the answer
+    # away while the wheel is still spinning. It is served by GET /banner,
+    # which wheel.js fetches once the animation ends.
     token = _token_with_entries(client)
 
     response = client.post("/spin", data={"token": token})
 
     assert response.status_code == 200
     body = response.text
-    assert "🎉" in body
+    assert "🎉" not in body
     assert 'data-animate="1"' in body
     assert re.search(r'data-pre-index="\d+"', body)
     # Go button wiring lives in the go-form partial (ruling: partials are the
     # single source of truth), which the spin response swaps back OOB.
     assert 'hx-post="/spin"' in body
     assert 'hx-target="#banner"' in body
+
+
+def test_banner_endpoint_announces_winner_after_spin(client):
+    # Same deferral contract as GET /picked: the spin parks the winner on
+    # the session, and the banner fetch serves it once the wheel stops.
+    token = _seed(client, ["Ana"], remove_picked=True)
+
+    spin_response = client.post("/spin", data={"token": token})
+    banner_response = client.get("/banner", params={"token": token})
+
+    assert spin_response.status_code == 200
+    assert banner_response.status_code == 200
+    assert banner_response.text == "🎉 Ana"
+
+
+def test_banner_endpoint_is_empty_before_any_spin(client):
+    token, _body = _page(client)
+
+    response = client.get("/banner", params={"token": token})
+
+    assert response.status_code == 200
+    assert response.text == ""
+
+
+def test_banner_endpoint_stale_token(client):
+    response = client.get("/banner", params={"token": "nope"})
+
+    assert response.status_code == 200
+    assert SESSION_EXPIRED in response.text
+    assert app.state.store.get("nope") is None
+
+
+def test_chat_spin_ships_no_banner_and_defers_announcement(client):
+    # The chat-spin path must defer the banner exactly like POST /spin:
+    # its OOB #banner swap used to land with the response, mid-spin.
+    # (The 🎉 bubble in the chat log is the transcript of what happened,
+    # not the banner — it stays.)
+    token = _seed(client, ["Ana"], remove_picked=False)
+
+    response = client.post("/chat", data={"token": token, "message": "spin"})
+    banner_response = client.get("/banner", params={"token": token})
+
+    assert response.status_code == 200
+    assert '<div id="banner"' not in response.text
+    assert banner_response.text == "🎉 Ana"
 
 
 def test_spin_empty_endpoint_bubbles(client):

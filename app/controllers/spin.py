@@ -48,6 +48,24 @@ def picked(request: Request, token: str) -> HTMLResponse:
     )
 
 
+@router.get("/banner", response_class=HTMLResponse)
+def banner(request: Request, token: str) -> HTMLResponse:
+    """The winner announcement on its own — wheel.js fetches this when a
+    spin animation ends, so the banner lands in #banner only after the
+    wheel stops (the spin responses no longer ship it: it used to arrive
+    within milliseconds and give the answer away)."""
+    session, stale_bubble = get_session_or_bubble(request, token)
+    if session is None:
+        return stale_bubble
+    if session.pending_banner is None:
+        return HTMLResponse("")
+    return HTMLResponse(
+        render_partial(
+            request, "partials/banner.html", {"label": session.pending_banner}
+        )
+    )
+
+
 @router.post("/spin", response_class=HTMLResponse)
 def spin(request: Request, token: str = Form(...)) -> HTMLResponse:
     session, stale_bubble = get_session_or_bubble(request, token)
@@ -69,13 +87,16 @@ def spin(request: Request, token: str = Form(...)) -> HTMLResponse:
             return _empty_wheel_response(request, session)
         winner, pre_spin_index = result
 
+        # The announcement rides the session, not this response: wheel.js
+        # fetches GET /banner when the wheel stops.
+        session.pending_banner = winner.label
+
         # The glow marks the winner in the SHIPPED wheel — only when the winner
         # still has a segment there.
         glow_index = (
             pre_spin_index if any(e is winner for e in session.entries) else None
         )
-        html = render_partial(request, "partials/banner.html", {"label": winner.label})
-        html += render_partial(
+        html = render_partial(
             request,
             "partials/wheel_pane.html",
             {
